@@ -1,0 +1,47 @@
+# --- Secrets / local config (NEVER commit real values; commit .env.example only) ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+npm-debug.log*
+
+# --- Data: large/raw files stay out of git; only data/sample/ is committed ---
+data/raw/*
+data/processed/*
+data/local/*
+!data/**/.gitkeep
+!data/**/README.md
+
+# --- ML artifacts: trained models are produced by the pipeline, not committed ---
+ml/artifacts/*
+!ml/artifacts/.gitkeep
+!ml/artifacts/README.md
+
+# --- SQLite databases ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Editors / OS ---
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

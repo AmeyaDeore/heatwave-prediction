@@ -1,0 +1,53 @@
+# Install once per clone:  uv run pre-commit install
+# Run on everything:       uv run pre-commit run --all-files
+#
+# Python tools run through `uv run` so their versions come from uv.lock rather
+# than a second pin here. The frontend hooks need `npm ci` in frontend/ first.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets (no secrets committed)
+        entry: uv run detect-secrets-hook --baseline .secrets.baseline
+        language: system
+        exclude: (^|/)(uv\.lock|package-lock\.json)$
+
+      - id: ruff-check
+        name: ruff check (python lint)
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format (python format)
+        entry: uv run ruff format
+        language: system
+        types: [python]
+
+      - id: frontend-prettier
+        name: prettier (frontend format)
+        entry: npm --prefix frontend run format:check
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: frontend-eslint
+        name: eslint (frontend lint)
+        entry: npm --prefix frontend run lint
+        language: system
+        files: ^frontend/
+        pass_filenames: false

@@ -1,0 +1,23 @@
+[project]
+name = "heatwave-ml"
+version = "0.1.0"
+description = "Data pipeline, training, evaluation and SHAP explainability for heatwave risk prediction"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "numpy>=2.1",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "xgboost>=2.1",
+    "shap>=0.46",
+    "pyyaml>=6.0",
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+    "pyarrow>=17",
+]
+
+[project.scripts]
+heatwave-ingest = "heatwave_ml.ingestion.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

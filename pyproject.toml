@@ -1,0 +1,39 @@
+# Virtual workspace root: ml/ and backend/ share one interpreter version and one
+# uv.lock, so a model trained in ml/ unpickles with identical library versions
+# in backend/. Each member can still be installed on its own:
+#   uv sync --package heatwave-api   (backend only, no ML training extras)
+#   uv sync --package heatwave-ml    (ML pipeline only)
+#   uv sync --all-packages           (everything)
+
+[tool.uv.workspace]
+members = ["ml", "backend"]
+
+[dependency-groups]
+dev = [
+    "detect-secrets>=1.5",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "ruff>=0.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["frontend", "Implementation"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # simplify
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["heatwave_api", "heatwave_ml"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests", "ml/tests", "tests"]

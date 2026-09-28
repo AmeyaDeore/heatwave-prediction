@@ -1,0 +1,26 @@
+# Single source of truth for the risk-class vocabulary and labelling thresholds.
+# Read by ml/ (labelling in Part 03) and backend/ (validation and display in Part 07).
+# Do not copy these values into code; load this file.
+#
+# The thresholds follow the India Meteorological Department (IMD) heatwave criteria.
+# Part 03 confirms or refines them before training.
+
+classes:
+  - NORMAL
+  - HEATWAVE
+  - SEVERE_HEATWAVE
+
+imd_criteria:
+  # A station must reach at least this max temperature before a heatwave can be declared.
+  min_tmax_celsius:
+    plains: 40.0
+    coastal: 37.0
+    hills: 30.0
+  # Departure of max temperature from the seasonal normal.
+  departure_from_normal_celsius:
+    HEATWAVE: 4.5
+    SEVERE_HEATWAVE: 6.5
+  # Absolute max temperature, regardless of the normal.
+  absolute_tmax_celsius:
+    HEATWAVE: 45.0
+    SEVERE_HEATWAVE: 47.0

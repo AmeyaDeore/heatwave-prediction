@@ -1,0 +1,13 @@
+# Normalise line endings so Windows and Unix contributors produce identical diffs.
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary / model artifacts
+*.png  binary
+*.jpg  binary
+*.pkl  binary
+*.joblib binary
+*.parquet binary
+*.db   binary

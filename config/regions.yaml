@@ -1,0 +1,40 @@
+# Monitored regions (Part 02, Section "location list is configuration").
+# Coordinates are approximate centroids. Part 02 verifies them and Part 08 seeds
+# the `regions` table from this file.
+
+regions:
+  - id: mumbai
+    name: Mumbai
+    district: Mumbai City
+    state: Maharashtra
+    zone: coastal
+    lat: 18.9750
+    lon: 72.8258
+  - id: kurla
+    name: Kurla
+    district: Mumbai Suburban
+    state: Maharashtra
+    zone: coastal
+    lat: 19.0726
+    lon: 72.8845
+  - id: andheri
+    name: Andheri
+    district: Mumbai Suburban
+    state: Maharashtra
+    zone: coastal
+    lat: 19.1136
+    lon: 72.8697
+  - id: dharavi
+    name: Dharavi
+    district: Mumbai City
+    state: Maharashtra
+    zone: coastal
+    lat: 19.0380
+    lon: 72.8538
+  - id: colaba
+    name: Colaba
+    district: Mumbai City
+    state: Maharashtra
+    zone: coastal
+    lat: 18.9067
+    lon: 72.8147
