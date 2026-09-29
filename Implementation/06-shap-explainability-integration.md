@@ -47,14 +47,18 @@ For a single prediction, the explanation output must contain, at minimum:
 
 ## 9. Acceptance criteria / "done"
 
-- [ ] Explainer type selected and justified against the actual production model type.
-- [ ] Background/reference dataset frozen and versioned alongside the model.
-- [ ] Output contract implemented exactly as Section 3 specifies (ranked factors, signed contributions, consistent representation, template-based summary sentence).
-- [ ] Feature-name-to-label mapping created and shared with frontend/backend owners.
-- [ ] Per-request latency benchmarked and confirmed acceptable.
-- [ ] Sanity checks against hand-picked examples pass and are documented.
-- [ ] SHAP-value consistency check (values sum appropriately with model output) implemented as an automated test.
+- [x] Explainer type selected and justified against the actual production model type. *(Part 05 promoted **XGBoost** `xgboost-20260928T100821Z-0bde51`, not the brief's Random Forest, so the explainer is `shap.TreeExplainer`, interventional, exact. The choice follows the bundle's estimator type automatically: Tree for XGBoost/RF, Linear for LR, all three tested. `docs/ml/explainability.md` §2, ADR 0005.)*
+- [x] Background/reference dataset frozen and versioned alongside the model. *(100 seeded random rows of the model's own training split. The builder refuses any other dataset. Committed as `ml/registry/explainers/<model_version>/background.csv`, with its SHA-256 and the model's SHA-256 in `explainer.json`. SHAP's silent subsampling of backgrounds over 100 rows was found and prevented. §4.)*
+- [x] Output contract implemented exactly as Section 3 specifies (ranked factors, signed contributions, consistent representation, template-based summary sentence). *(`Explanation.to_dict()`: prediction + all 7 factors ranked by |contribution|, each with a signed `contribution` (log-odds of the risk class vs NORMAL, positive = more risk) and a signed `share_pct` for the bars, `display_value`, an `imputed` flag, and a deterministic summary sentence. §3.)*
+- [x] Feature-name-to-label mapping created and shared with frontend/backend owners. *(`config/feature_labels.json`: labels, units, precision and risk-class names. Loaded by `features/schema.py`, which fails on drift. Documented in `config/README.md` and `frontend/README.md`, and every factor in the API carries its label too. §5.)*
+- [x] Per-request latency benchmarked and confirmed acceptable. *(Prediction + explanation p50 27.6 ms / p95 45.4 ms per request, and 338 ms for a 15-row batch, against the policy's 500 ms budget. The build fails over budget. Re-measure on the serving host. §6.)*
+- [x] Sanity checks against hand-picked examples pass and are documented. *(Seven checks on six cases run through `build_features`: extreme heat → SEVERE driven by deviation + Tmax; typical and cool days → temperature lowers risk; a strong wind is protective (−0.28) where a calm wind is not; missing humidity is imputed and flagged. All pass, run at build/verify and as tests. §7.)*
+- [x] SHAP-value consistency check (values sum appropriately with model output) implemented as an automated test. *(`test_shap_values_sum_to_the_model_output` and `test_explained_output_is_the_target_vs_normal_log_ratio` for all three families, plus a build-time check on all 746 validation rows: max error 2.2 × 10⁻⁶. It found and fixed a real 2.8 × 10⁻⁴ Random Forest error caused by SHAP rounding float32 thresholds. §7.)*
+
+**Also produced:** `heatwave-explain build · verify · show · explain`. `load_production_explainer()` refuses a stale explainer, and `heatwave-registry verify` checks it. Global importance is recorded separately from per-prediction explanations. There is ADR 0005, and 42 tests in `ml/tests/test_explainability.py` (157 in the whole repository, all passing). **Finding:** about 90 % of every explanation is temperature, because the labels follow the temperature-only IMD rule. Humidity and wind are correctly minor factors, so the UI mockup's "elevated humidity" wording would overstate them for this model.
 
 ## 10. Handoff note template
 
 > Explainer artifact at: <path>, built against production model version <id>. Output contract: <link/summary>. Feature label mapping at: <path>. Per-request latency: <measured value>. Part 07 can now wire this into the prediction endpoint.
+
+**Filled in:** see §9 of [`docs/ml/explainability.md`](../docs/ml/explainability.md).

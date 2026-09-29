@@ -8,6 +8,9 @@ history.jsonl                     append-only: evaluated · promoted · rolled_b
 evaluations/<evaluation_id>/
   report.json                     every metric, the selection trace, provenance
   report.md                       the same, human-readable (comparison table, justification)
+explainers/<model_version>/       Part 06: the SHAP explainer for that model
+  explainer.json                  manifest: model SHA-256, method, probe, checks, importance
+  background.csv                  the frozen reference sample of the model's training split
 ```
 
 ```sh
@@ -15,8 +18,9 @@ uv run heatwave-registry status        # production model + every evaluated mode
 uv run heatwave-registry verify        # every registered bundle present, hash-intact, loadable
 uv run heatwave-registry promote --evaluation <id> [--model <version> --reason "..."]
 uv run heatwave-registry rollback --to <version> --reason "..."
+uv run heatwave-explain build          # after every promote/rollback: the backend refuses a stale explainer
 ```
 
 The pointer references bundles in the git-ignored `ml/artifacts/runs/`. On a fresh clone, run `uv run heatwave-train run` first. Training is reproducible, so the rebuilt bundle has the same SHA-256 and the pointer resolves to it under its new run id.
 
-Full description, the retraining procedure and the current results: [`docs/ml/evaluation.md`](../../docs/ml/evaluation.md).
+Full description, the retraining procedure and the current results: [`docs/ml/evaluation.md`](../../docs/ml/evaluation.md). The explainer: [`docs/ml/explainability.md`](../../docs/ml/explainability.md).

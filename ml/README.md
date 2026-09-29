@@ -63,3 +63,16 @@ uv run heatwave-registry status
 
 - Criteria, results, comparison table, justification, retraining and rollback, handoff to Part 06: [`docs/ml/evaluation.md`](../docs/ml/evaluation.md)
 - Why: [`docs/decisions/0004-model-selection-and-registry.md`](../docs/decisions/0004-model-selection-and-registry.md)
+
+## SHAP explainability (Part 06)
+
+`src/heatwave_ml/explainability/` explains every prediction: the ranked, signed contribution of each feature, bar-ready shares and a templated summary sentence, returned **together with the prediction** from one call. The backend loads it with `load_production_explainer(registry)`, which refuses an explainer built for any model other than the production one. User-facing labels come from `config/feature_labels.json`.
+
+```sh
+uv run heatwave-explain build     # → registry/explainers/<model_version>/{explainer.json,background.csv}
+uv run heatwave-explain verify    # reload + re-derive additivity, sanity cases, importance
+uv run heatwave-explain explain --rows 3 --json
+```
+
+- Explainer choice, output contract, background, validation, versioning, handoff to Part 07: [`docs/ml/explainability.md`](../docs/ml/explainability.md)
+- Why: [`docs/decisions/0005-shap-explainability.md`](../docs/decisions/0005-shap-explainability.md)
