@@ -52,6 +52,12 @@ Choose one:
   uv run heatwave-prepare all                             # normals → dataset → observed → sample (docs/data/preprocessing.md)
   ```
   `heatwave-prepare dataset` needs only the committed `config/seasonal_normals.csv`: it generates and lands the synthetic batch itself, with no network access.
+
+  Then train the three candidate models (Part 04; about 45 s, offline). The bundles are git-ignored, so every fresh clone runs this once:
+  ```sh
+  uv run heatwave-train run       # → ml/artifacts/runs/<run_id>/ (docs/ml/training.md)
+  uv run heatwave-train verify
+  ```
 - **Backend/frontend track:** use the committed `data/sample/` dataset, so you are not blocked on ML work.
 
 ## 6. Start the backend

@@ -224,6 +224,7 @@ name = "heatwave-ml"
 version = "0.1.0"
 source = { editable = "ml" }
 dependencies = [
+    { name = "joblib" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -231,12 +232,14 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "scikit-learn" },
+    { name = "scipy" },
     { name = "shap" },
     { name = "xgboost" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "joblib", specifier = ">=1.4" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pyarrow", specifier = ">=17" },
@@ -244,6 +247,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32" },
     { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "scipy", specifier = ">=1.14" },
     { name = "shap", specifier = ">=0.46" },
     { name = "xgboost", specifier = ">=2.1" },
 ]
