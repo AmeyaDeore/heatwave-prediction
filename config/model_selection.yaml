@@ -1,0 +1,88 @@
+# Model selection policy (Part 05 §3): how the production model is chosen from the
+# candidates, fixed BEFORE the held-out test split is scored.
+#
+# Read by `heatwave-evaluate run`. Every evaluation report records this file's
+# SHA-256 and the commit that last changed it, and the evaluator refuses to run
+# while the file has uncommitted changes. So git history shows that the criteria
+# came before the numbers. Rationale for each value: docs/ml/evaluation.md §2.
+#
+# Bump policy_version whenever anything below changes. A report is only
+# comparable with another report made under the same policy version.
+policy_version: SEL-v1
+
+# Step 1: hard gates. A candidate that fails any gate cannot be selected, however
+# good its scores are. If no candidate passes, nothing is selected or promoted.
+gates:
+  # The dangerous failure mode (Part 05 §2): a SEVERE_HEATWAVE day predicted as
+  # NORMAL. No warning at all is issued for the worst events. The limit is a
+  # count of test rows, and zero means none are tolerated.
+  max_severe_predicted_normal: 0
+  # "Prediction confidence" is shown to officials (Part 12), so the top-class
+  # probability must mean what it says. Expected calibration error of the
+  # top-label probability over equal-width bins.
+  max_top_label_ece: 0.05
+  # Live serving budget per request (Part 07): p95 of one prediction (one row,
+  # through ModelBundle) plus one SHAP explanation of it. Leaves room inside a
+  # 1-second dashboard response for the database, network and rendering.
+  max_p95_request_ms: 500
+  # Part 06 must compute explanations per request, so only models with an exact,
+  # closed-form SHAP explainer qualify (TreeExplainer / LinearExplainer).
+  require_exact_shap_explainer: true
+
+# Step 2: the quality tier (Part 05 §3.1: macro-F1 and accuracy come first).
+# A candidate stays in the tier unless it is significantly worse than the best
+# eligible candidate on either metric: the upper bound of the paired-bootstrap
+# confidence interval of (candidate - best) must be >= 0.
+quality_tier:
+  metrics: [f1_macro, accuracy]
+
+# Step 3: operational cost (Part 05 §3.2: a missed severe event costs more than a
+# false alarm). The mean cost per prediction on the test split, from this matrix
+# (rows = true class, columns = predicted class, in config/risk_classes.yaml
+# order: NORMAL, HEATWAVE, SEVERE_HEATWAVE). The lowest cost in the tier wins,
+# unless step 4 applies.
+misclassification_cost:
+  NORMAL: [0, 1, 2]            # false alarm; a severe false alarm mobilises more
+  HEATWAVE: [5, 0, 1]          # missed heatwave: no advisory issued
+  SEVERE_HEATWAVE: [20, 3, 0]  # missed severe: nothing issued (also gated above); under-graded: advisory, but no cooling centres
+
+# Step 4: latency (Part 05 §3.4). When another tier member's cost is not
+# significantly higher than the lowest (the bootstrap interval of the difference
+# contains 0), it is operationally equivalent. Then the fastest equivalent model
+# (p95 request time) is chosen if it is at least this many times faster than the
+# lowest-cost model. Smaller speed-ups are not "material" and do not change the choice.
+latency_tiebreak:
+  material_speedup: 2.0
+
+# Robustness check, reported with the selection: steps 1-4 re-run under each
+# alternative cost matrix. It never changes the selection, but a choice that
+# flips under reasonable alternatives is flagged in the report.
+cost_sensitivity:
+  error_rate:                  # every mistake costs the same (1 - accuracy)
+    NORMAL: [0, 1, 1]
+    HEATWAVE: [1, 0, 1]
+    SEVERE_HEATWAVE: [1, 1, 0]
+  severe_dominant:             # only severe events matter
+    NORMAL: [0, 1, 1]
+    HEATWAVE: [1, 0, 1]
+    SEVERE_HEATWAVE: [50, 10, 0]
+
+# Statistical settings, used for the tier (step 2), the cost equivalence (step 4)
+# and the confidence intervals in the report.
+bootstrap:
+  resamples: 2000
+  confidence: 0.95
+  seed: 42
+
+calibration:
+  bins: 10
+
+# Latency benchmark (Part 05 §3.4). It runs on training rows, never on test rows.
+# One request = one row. The batch is one prediction run: 5 regions x 3 forecast days.
+latency:
+  warmup: 10
+  single_row_repeats: 200
+  batch_rows: 15
+  batch_repeats: 50
+  explain_repeats: 30
+  shap_background_rows: 100   # LinearExplainer background (Logistic Regression only)
