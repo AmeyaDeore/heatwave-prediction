@@ -63,7 +63,9 @@ class SeasonalMedianImputer(TransformerMixin, BaseEstimator):
             for c in self.columns
         }
         self.global_medians_ = {c: float(X[c].median()) for c in self.columns}
-        self.n_features_in_ = len(FEATURE_COLUMNS) + 1
+        # The inputs it reads, in order; a fitted model bundle checks these (Part 04 §5).
+        self.feature_names_in_ = np.array([*FEATURE_COLUMNS, MONTH_COLUMN], dtype=object)
+        self.n_features_in_ = len(self.feature_names_in_)
         return self
 
     def transform(self, X):

@@ -7,6 +7,8 @@ dependencies = [
     "numpy>=2.1",
     "pandas>=2.2",
     "scikit-learn>=1.5",
+    "scipy>=1.14",
+    "joblib>=1.4",
     "xgboost>=2.1",
     "shap>=0.46",
     "pyyaml>=6.0",
@@ -18,6 +20,7 @@ dependencies = [
 [project.scripts]
 heatwave-ingest = "heatwave_ml.ingestion.cli:main"
 heatwave-prepare = "heatwave_ml.preprocessing.cli:main"
+heatwave-train = "heatwave_ml.training.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]

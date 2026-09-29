@@ -36,3 +36,16 @@ uv run heatwave-prepare all     # → config/seasonal_normals.csv, data/heatwave
 - Label rule: [`docs/data/heatwave-labeling-spec.md`](../docs/data/heatwave-labeling-spec.md)
 - Synthetic data: [`docs/data/synthetic-dataset.md`](../docs/data/synthetic-dataset.md)
 - Cleaning, features, parity, split, handoff to Part 04: [`docs/data/preprocessing.md`](../docs/data/preprocessing.md)
+
+## Model training (Part 04)
+
+`src/heatwave_ml/training/` trains, tunes (stratified CV on the train split only) and packages Logistic Regression, Random Forest and XGBoost. `src/heatwave_ml/bundle.py` is the artifact format **shared with evaluation and the backend**: load models with `ModelBundle.load`, never with a bare `joblib.load`.
+
+```sh
+uv run heatwave-train run       # → artifacts/runs/<run_id>/<model>/{model.joblib,bundle.json}
+uv run heatwave-train summary   # comparison table from artifacts/experiment_log.jsonl
+uv run heatwave-train verify    # re-check every bundle of the latest run
+```
+
+- Pipeline, search spaces, imbalance strategy, bundle contract, results, handoff to Part 05: [`docs/ml/training.md`](../docs/ml/training.md)
+- Why: [`docs/decisions/0003-model-training-and-artifacts.md`](../docs/decisions/0003-model-training-and-artifacts.md)

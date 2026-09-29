@@ -41,6 +41,7 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 | `TRAINING_START_DATE`, `TRAINING_END_DATE`, `RANDOM_SEED` | ml | no | 02/03/04 |
 | `SEASONAL_NORMALS_FILE` | ml, backend (from Part 07: live features need it) | no | 03 |
 | `MODELING_DATASET_PATH`, `TEST_FRACTION`, `VALIDATION_FRACTION` | ml | no | 03 |
+| `CV_FOLDS`, `TRAINING_N_JOBS` | ml | no | 04 |
 | `VITE_API_BASE_URL`, `VITE_DEFAULT_REGION`, `VITE_DASHBOARD_POLL_INTERVAL_MS` | frontend | no (public) | 10 |
 
 ## Secret ownership & rotation

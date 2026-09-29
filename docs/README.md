@@ -10,6 +10,7 @@
 | [data/heatwave-labeling-spec.md](data/heatwave-labeling-spec.md) | Part 03: the versioned NORMAL / HEATWAVE / SEVERE_HEATWAVE rule |
 | [data/synthetic-dataset.md](data/synthetic-dataset.md) | Part 03: how the 5,000-record synthetic set is generated and why |
 | [data/preprocessing.md](data/preprocessing.md) | Part 03: cleaning decisions, features, train/inference parity, split, handoff to Part 04 |
+| [ml/training.md](ml/training.md) | Part 04: training pipeline, search spaces, imbalance strategy, artifact bundle contract, experiment log, results, handoff to Part 05 |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Branching, commit and PR conventions |
 | [../Implementation/](../Implementation/) | The 18-part implementation plan set (start with `00-README-master-plan.md`) |
 
