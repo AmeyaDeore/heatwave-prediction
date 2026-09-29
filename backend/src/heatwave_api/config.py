@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///data/local/heatwave.db"
 
     model_artifact_dir: Path = Path("ml/artifacts")
-    model_version: str = "latest"
+    model_registry_dir: Path = Path("ml/registry")
+    # "production" follows ml/registry/production.json (Part 05). Never "whatever is
+    # newest": promotion is an explicit, recorded action. An exact version id pins one.
+    model_version: str = "production"
     risk_config_path: Path = Path("config/risk_classes.yaml")
 
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
@@ -55,7 +58,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("model_artifact_dir", "risk_config_path")
+    @field_validator("model_artifact_dir", "model_registry_dir", "risk_config_path")
     @classmethod
     def _resolve_from_repo_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else REPO_ROOT / value

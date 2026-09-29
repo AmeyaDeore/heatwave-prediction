@@ -4,6 +4,7 @@ This part takes the modelling dataset from Part 03 and produces three tuned, pac
 
 - [../data/preprocessing.md](../data/preprocessing.md): the dataset, features, fitted preprocessor and split (Part 03)
 - [../decisions/0003-model-training-and-artifacts.md](../decisions/0003-model-training-and-artifacts.md): why the pipeline, imbalance strategy and bundle format are what they are
+- [evaluation.md](evaluation.md): Part 05's test-split evaluation of these candidates, the selection, and the production pointer
 
 ```sh
 uv run heatwave-train run            # all three models, about 45 s on a 16-thread laptop

@@ -149,7 +149,7 @@ def registry_main(argv: list[str] | None = None) -> int:
             if pointer:
                 print(
                     f"production: {pointer['model_version']}  "
-                    f"sha256 {pointer['model_sha256'][:12]}…"
+                    f"sha256 {pointer['model_sha256'][:12]}..."
                     f"  since {pointer['changed_at']} by {pointer['changed_by']} "
                     f"({pointer['action']}: {pointer['reason']})"
                 )

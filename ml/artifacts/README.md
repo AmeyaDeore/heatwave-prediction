@@ -9,4 +9,6 @@ runs/<run_id>/<model_family>/
   bundle.json                     the contract: version, dataset hash, features, classes, ...
 ```
 
-Load a model only through `heatwave_ml.bundle.ModelBundle.load`, which verifies the file hash before unpickling it. The bundle contract is in [`docs/ml/training.md`](../../docs/ml/training.md) §5. Versioning and the production pointer are defined in Part 05.
+Load a model only through `heatwave_ml.bundle.ModelBundle.load`, which verifies the file hash before unpickling it. The bundle contract is in [`docs/ml/training.md`](../../docs/ml/training.md) §5.
+
+Which bundle is in production is **not** decided here. It is recorded in the committed registry, [`ml/registry/production.json`](../registry/production.json) (Part 05, [`docs/ml/evaluation.md`](../../docs/ml/evaluation.md)). Don't delete runs: non-production bundles are the archived candidates that a rollback returns to.

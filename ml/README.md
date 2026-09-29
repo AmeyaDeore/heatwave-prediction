@@ -49,3 +49,17 @@ uv run heatwave-train verify    # re-check every bundle of the latest run
 
 - Pipeline, search spaces, imbalance strategy, bundle contract, results, handoff to Part 05: [`docs/ml/training.md`](../docs/ml/training.md)
 - Why: [`docs/decisions/0003-model-training-and-artifacts.md`](../docs/decisions/0003-model-training-and-artifacts.md)
+
+## Evaluation, selection and the model registry (Part 05)
+
+`src/heatwave_ml/evaluation/` scores a training run's bundles on the held-out test split, once. It applies the selection policy in `config/model_selection.yaml`, which must be committed before the run, and writes a report. `src/heatwave_ml/registry.py` is the production pointer **shared with the backend**: load the served model with `ModelRegistry.load_production()`.
+
+```sh
+uv run heatwave-evaluate run      # → registry/evaluations/<id>/{report.json,report.md}
+uv run heatwave-evaluate verify   # re-derive the report from bundles + dataset
+uv run heatwave-registry promote --evaluation <id>   # → registry/production.json
+uv run heatwave-registry status
+```
+
+- Criteria, results, comparison table, justification, retraining and rollback, handoff to Part 06: [`docs/ml/evaluation.md`](../docs/ml/evaluation.md)
+- Why: [`docs/decisions/0004-model-selection-and-registry.md`](../docs/decisions/0004-model-selection-and-registry.md)
