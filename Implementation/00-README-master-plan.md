@@ -118,7 +118,8 @@ If you hand these to a coding assistant (e.g., Claude Code) one at a time:
 1. Paste the master plan (this file) once at the start of the project so the agent has the full map.
 2. Then feed each numbered file **in dependency order** as its own task/session.
 3. At the end of each part, ask the agent to produce a short "handoff note" (what was built, what the next part can assume exists) before moving to the next file — this keeps context manageable across sessions.
-4. Re-paste this master file if you switch to a new chat/session partway through, so the agent re-orients itself.
+4. **After every major change, write a detailed implementation log in `docs/logs/`** (one per part, `NN-<plan-file-slug>.md`; other major changes `YYYY-MM-DD-<slug>.md`) using the template in `docs/logs/README.md`, and add it to that index. The plans say what *should* be built; the logs record what *was* built, why, how it was verified, and what is still open.
+5. Re-paste this master file if you switch to a new chat/session partway through, so the agent re-orients itself.
 
 ## 7. Definition of "done" for the whole project
 
