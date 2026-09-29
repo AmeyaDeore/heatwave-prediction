@@ -18,18 +18,22 @@ from heatwave_ml.features.preprocessor import (
 )
 from heatwave_ml.features.schema import (
     FEATURE_COLUMNS,
+    FEATURE_DISPLAY,
     FEATURE_LABELS,
     FEATURE_UNITS,
     MONTH_COLUMN,
+    RISK_CLASS_LABELS,
     SPLIT_COLUMN,
     TARGET_COLUMN,
 )
 
 __all__ = [
     "FEATURE_COLUMNS",
+    "FEATURE_DISPLAY",
     "FEATURE_LABELS",
     "FEATURE_UNITS",
     "MONTH_COLUMN",
+    "RISK_CLASS_LABELS",
     "SCALING_BY_MODEL",
     "SPLIT_COLUMN",
     "TARGET_COLUMN",

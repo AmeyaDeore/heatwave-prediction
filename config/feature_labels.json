@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "about": "Single source of truth for user-facing feature and risk-class names (Part 06 §5). Read by ml/ (heatwave_ml.features.schema), the backend (Part 07) and the frontend (Parts 10-14). Keys are the model's internal feature names, fixed in heatwave_ml.features.schema.FEATURE_COLUMNS. Edit labels here only; never copy them into code.",
+  "features": {
+    "tmax_c": {
+      "label": "Maximum Temperature",
+      "unit": "°C",
+      "unit_detail": "°C",
+      "decimals": 1,
+      "signed": false
+    },
+    "normal_tmax_c": {
+      "label": "Seasonal Normal Temperature",
+      "unit": "°C",
+      "unit_detail": "°C",
+      "decimals": 1,
+      "signed": false
+    },
+    "rh_pct": {
+      "label": "Relative Humidity",
+      "unit": "%",
+      "unit_detail": "%",
+      "decimals": 0,
+      "signed": false
+    },
+    "wind_ms": {
+      "label": "Wind Speed",
+      "unit": "m/s",
+      "unit_detail": "m/s at 2 m",
+      "decimals": 1,
+      "signed": false
+    },
+    "solar_mj_m2": {
+      "label": "Solar Radiation",
+      "unit": "MJ/m²",
+      "unit_detail": "MJ/m²/day",
+      "decimals": 1,
+      "signed": false
+    },
+    "precip_mm": {
+      "label": "Precipitation",
+      "unit": "mm",
+      "unit_detail": "mm/day",
+      "decimals": 1,
+      "signed": false
+    },
+    "temp_deviation_c": {
+      "label": "Temperature Deviation",
+      "unit": "°C",
+      "unit_detail": "°C",
+      "decimals": 1,
+      "signed": true
+    }
+  },
+  "risk_classes": {
+    "NORMAL": "Normal",
+    "HEATWAVE": "Heatwave",
+    "SEVERE_HEATWAVE": "Severe Heatwave"
+  }
+}
