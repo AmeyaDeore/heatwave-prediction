@@ -7,7 +7,8 @@ uv run heatwave-evaluate verify [--evaluation ID]  # re-derive a report from art
 uv run heatwave-registry status                # production pointer + every registered model
 uv run heatwave-registry promote --evaluation ID [--model VERSION --reason TEXT]
 uv run heatwave-registry rollback --to VERSION --reason TEXT
-uv run heatwave-registry verify                # every registered bundle present and intact
+uv run heatwave-registry verify                # every registered bundle present and intact,
+                                               # and the production explainer matches (Part 06)
 """
 
 import argparse
@@ -19,6 +20,7 @@ from heatwave_ml.bundle import BundleError, ModelBundle
 from heatwave_ml.evaluation.evaluator import EvaluationError, Evaluator
 from heatwave_ml.evaluation.report import FAMILY_NAMES
 from heatwave_ml.evaluation.settings import EvaluationSettings
+from heatwave_ml.explainability.explainer import ExplainerError, load_production_explainer
 from heatwave_ml.registry import REPORT_MD, ModelRegistry, RegistryError, git_user
 
 
@@ -142,7 +144,10 @@ def registry_main(argv: list[str] | None = None) -> int:
                 pointer = registry.rollback(args.model_version, by=args.by, reason=args.reason)
             print(f"production -> {pointer['model_version']} (was {pointer['previous']})")
             print(f"pointer    -> {registry.pointer_path}")
-            print("Part 06: rebuild the SHAP explainer against this model.")
+            print(
+                "Part 06: the explainer must match the new model. Run "
+                "`uv run heatwave-explain build`; the backend refuses a stale one."
+            )
             return 0
         if args.command == "status":
             pointer = registry.production()
@@ -178,6 +183,12 @@ def registry_main(argv: list[str] | None = None) -> int:
         if registry.production():
             registry.load_production()
             print("ok   production pointer resolves and loads")
+            try:
+                explainer = load_production_explainer(registry)
+                print(f"ok   production explainer {explainer.explainer_id} matches and reproduces")
+            except ExplainerError as exc:
+                failures += 1
+                print(f"FAIL production explainer: {exc}")
         return 1 if failures else 0
     except (RegistryError, BundleError, LookupError) as exc:
         print(f"error: {exc}", file=sys.stderr)

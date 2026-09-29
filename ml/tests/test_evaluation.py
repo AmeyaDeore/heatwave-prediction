@@ -481,7 +481,9 @@ def test_cli_evaluate_and_registry(workspace, monkeypatch, capsys):
     ).evaluation_ids()[-1]
     assert cli.registry_main(["promote", "--evaluation", evaluation_id, "--by", "tester"]) == 0
     assert cli.registry_main(["status"]) == 0
-    assert cli.registry_main(["verify"]) == 0
+    # Since Part 06 the production model must also have its explainer: none built here.
+    assert cli.registry_main(["verify"]) == 1
     out = capsys.readouterr().out
     assert "production:" in out and "production pointer resolves and loads" in out
+    assert "FAIL production explainer: No explainer" in out
     assert ExperimentLog(s.experiment_log).run(run)["status"] == "success"
