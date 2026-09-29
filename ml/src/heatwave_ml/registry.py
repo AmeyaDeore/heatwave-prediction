@@ -6,7 +6,9 @@ the bundles it points at:
     ml/registry/
       production.json                 THE pointer: the one model the backend serves
       history.jsonl                   append-only: evaluated · promoted · rolled_back
+                                      · explainer_built (Part 06)
       evaluations/<evaluation_id>/    report.json + report.md, one per test evaluation
+      explainers/<model_version>/     explainer.json + background.csv (Part 06)
 
 Identity. A bundle's ``model_version`` (``<family>-<run_id>``) ties it to its
 training run and, through bundle.json, to the dataset hash. Its ``model_sha256``
@@ -129,6 +131,10 @@ class ModelRegistry:
         self.history.append(
             {"schema": REGISTRY_SCHEMA_VERSION, "logged_at": _now(), "event": event, **fields}
         )
+
+    def record_event(self, event: str, **fields) -> None:
+        """Log an event another part owns, e.g. Part 06's ``explainer_built``."""
+        self._event(event, **fields)
 
     def events(self, kind: str | None = None) -> list[dict]:
         return [e for e in self.history.events() if kind is None or e["event"] == kind]
