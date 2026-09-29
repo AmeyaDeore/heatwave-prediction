@@ -21,6 +21,8 @@ dependencies = [
 heatwave-ingest = "heatwave_ml.ingestion.cli:main"
 heatwave-prepare = "heatwave_ml.preprocessing.cli:main"
 heatwave-train = "heatwave_ml.training.cli:main"
+heatwave-evaluate = "heatwave_ml.evaluation.cli:evaluate_main"
+heatwave-registry = "heatwave_ml.evaluation.cli:registry_main"
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]

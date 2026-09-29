@@ -31,10 +31,11 @@ from heatwave_ml.training.trainer import Trainer, load_training_data
 FOLDS = 3
 
 
-def write_small_dataset(directory, *, rows_per_split=(600, 200, 200)):
+def write_small_dataset(directory, *, rows_per_split=(600, 200, 200), poison_test=True):
     """A stratified slice of the committed dataset, with a matching manifest.
 
-    Test-split rows get a missing Tmax: the fitted imputer raises on those, so if
+    Test-split rows get a missing Tmax (unless ``poison_test`` is False, for the
+    Part 05 tests that must score them): the fitted imputer raises on those, so if
     any test row reached a fit or a prediction, training would fail.
     """
     source = REPO_ROOT / "data" / "heatwave_dataset.csv"
@@ -47,7 +48,8 @@ def write_small_dataset(directory, *, rows_per_split=(600, 200, 200)):
         )
         parts.append(part)
     small = pd.concat(parts).sort_index()
-    small.loc[small["split"] == "test", "tmax_c"] = np.nan
+    if poison_test:
+        small.loc[small["split"] == "test", "tmax_c"] = np.nan
 
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "heatwave_dataset.csv"
