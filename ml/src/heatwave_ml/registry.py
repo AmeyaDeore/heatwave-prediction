@@ -175,7 +175,7 @@ class ModelRegistry:
             if meta["model_sha256"] == entry["model_sha256"]:
                 return meta_path.parent
         raise RegistryError(
-            f"No bundle with SHA-256 {entry['model_sha256'][:12]}… for {entry['model_version']} "
+            f"No bundle with SHA-256 {entry['model_sha256'][:12]}... for {entry['model_version']} "
             f"under {self.runs_dir}. Rebuild it with `uv run heatwave-train run` (training is "
             "reproducible), then `uv run heatwave-registry verify`."
         )

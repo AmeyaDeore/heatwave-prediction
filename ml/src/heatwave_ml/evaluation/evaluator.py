@@ -250,8 +250,8 @@ class Evaluator:
             if bundle.metadata["training_data"]["sha256"] != data.sha256:
                 raise EvaluationError(
                     f"{bundle.version} was trained on dataset "
-                    f"{bundle.metadata['training_data']['sha256'][:12]}…, not the current "
-                    f"{data.sha256[:12]}…; its test scores would not be comparable"
+                    f"{bundle.metadata['training_data']['sha256'][:12]}..., not the current "
+                    f"{data.sha256[:12]}...; its test scores would not be comparable"
                 )
             loaded.append((bundle, CANDIDATE, load_ms))
 
@@ -360,7 +360,7 @@ class Evaluator:
         problems = []
         if data.sha256 != report["dataset"]["sha256"]:
             used = report["dataset"]["sha256"]
-            return [f"dataset is now {data.sha256[:12]}…, the report used {used[:12]}…"]
+            return [f"dataset is now {data.sha256[:12]}..., the report used {used[:12]}..."]
         if self.policy.raw != report["policy"]["settings"]:
             return [f"{self.settings.selection_policy} differs from the policy the report used"]
 

@@ -53,14 +53,18 @@ Produce the model comparison table referenced in the project results (Model / Ac
 
 ## 8. Acceptance criteria / "done"
 
-- [ ] Accuracy/Precision/Recall/F1 computed for all three models on the held-out test set, both overall and per-class.
-- [ ] Confusion matrices produced and reviewed for the dangerous-failure-mode check.
-- [ ] Inference latency benchmarked per model.
-- [ ] Selection criteria documented before final numbers were reviewed (or at minimum, documented alongside the final write-up with clear reasoning).
-- [ ] Comparison table and justification paragraph produced.
-- [ ] Production model formally selected, versioned, and pointer/alias recorded.
-- [ ] Archived (non-production) candidate artifacts retained.
+- [x] Accuracy/Precision/Recall/F1 computed for all three models on the held-out test set, both overall and per-class. *(Evaluation `20260929T081440Z-ecce7f`, 746 test rows scored once: macro and weighted P/R/F1, accuracy and per-class P/R/F1, with 95 % paired-bootstrap intervals. Also calibration (top-label and per-class reliability, ECE, Brier, log loss): all three pass ECE ≤ 0.05. `docs/ml/evaluation.md` §3.)*
+- [x] Confusion matrices produced and reviewed for the dangerous-failure-mode check. *(SEVERE_HEATWAVE → NORMAL is **0 of 64 for all three**, and it is a hard gate in the policy. Under-grades, missed HEATWAVE days and false alarms are counted separately and weighted by the cost matrix. §3.3.)*
+- [x] Inference latency benchmarked per model. *(Single row, a 15-row batch and a SHAP explanation preview, timed through `ModelBundle.predict_proba` with the candidates interleaved. Request p95: LR 22.5 ms, RF 86.0 ms, XGBoost 21.1 ms. Machine caveat in §3.5.)*
+- [x] Selection criteria documented before final numbers were reviewed (or at minimum, documented alongside the final write-up with clear reasoning). *(`config/model_selection.yaml` SEL-v1 was committed alone in `fbdf161` at 07:53 UTC; the test split was scored at 08:14 UTC. The evaluator refuses to run on an uncommitted policy and records the commit. Rationale in §2.)*
+- [x] Comparison table and justification paragraph produced. *(§3.1 and §4, and in `ml/registry/evaluations/20260929T081440Z-ecce7f/report.md`. `heatwave-evaluate verify` re-derives every number from bundles + dataset with no retraining.)*
+- [x] Production model formally selected, versioned, and pointer/alias recorded. *(**XGBoost `xgboost-20260928T100821Z-0bde51`**, promoted with `heatwave-registry promote` into `ml/registry/production.json`, with the history in `ml/registry/history.jsonl`. The backend default is now `MODEL_VERSION=production`. Retraining and rollback procedure in §5.)*
+- [x] Archived (non-production) candidate artifacts retained. *(The RF and LR bundles stay in `ml/artifacts/runs/20260928T100821Z-0bde51/` and are listed as `archived` by `heatwave-registry status`; `heatwave-registry verify` checks they are present and intact. Their results are in the evaluation report.)*
+
+**Outcome vs the brief:** Random Forest and XGBoost are statistically tied on quality and have identical operational cost. XGBoost wins the pre-committed latency tie-break (4.1× faster per request). The brief's "Random Forest is best" is therefore reproduced as "tied for best", not as uniquely best. See `docs/ml/evaluation.md` §4, including the recorded-override path. **Also produced:** `docs/decisions/0004-model-selection-and-registry.md` (ADR), 27 tests in `ml/tests/test_evaluation.py` (115 in the whole repository, all passing).
 
 ## 9. Handoff note template
 
 > Selected production model: <model name + version id>, located at: <path>. Comparison table: <summary/link>. Justification: <one-paragraph summary>. Part 06 should build the SHAP explainer against this specific artifact.
+
+**Filled in:** see §8 of [`docs/ml/evaluation.md`](../docs/ml/evaluation.md).
