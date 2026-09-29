@@ -78,7 +78,7 @@ If any source cannot supply a field, document that gap explicitly now rather tha
 - [x] Location list is externalized as configuration. *(`config/regions.yaml` via `MONITORED_REGIONS_FILE`.)*
 - [x] A scheduled/recurring pull path exists (even if manually triggered for the mini-project) for the forecast feed specifically. *(`uv run heatwave-ingest forecast`, with Task Scheduler/cron entries in `docs/data/raw-landing-zone.md#scheduling`.)*
 
-**Also verified:** resumable historical pull (a re-run skipped all 125 landed chunks in 1.5 s). Immutable landing (a forced re-fetch adds a version and never overwrites). Retry versus permanent-error classification. Partial-failure status. 25 automated tests in `ml/tests/test_ingestion_*.py`.
+**Also verified:** resumable historical pull (a re-run skipped all 125 landed chunks in 1.5 s). Immutable landing (a forced re-fetch adds a version and never overwrites). Retry versus permanent-error classification. Partial-failure status. 23 automated tests in `ml/tests/test_ingestion_*.py`. *(Re-checked 2026-09-28 before Part 03: all pass. The count was previously misstated as 25. A forced re-fetch now also shows live in `status` as `chunks_with_multiple_versions=1` for `synthetic`.)*
 
 ## 9. Handoff note template
 

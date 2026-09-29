@@ -24,7 +24,8 @@ repos:
         name: detect-secrets (no secrets committed)
         entry: uv run detect-secrets-hook --baseline .secrets.baseline
         language: system
-        exclude: (^|/)(uv\.lock|package-lock\.json)$
+        # Generated files that hold only SHA-256 hashes (they trip the hex-entropy check).
+        exclude: (^|/)(uv\.lock|package-lock\.json|[^/]+\.manifest\.json)$
 
       - id: ruff-check
         name: ruff check (python lint)

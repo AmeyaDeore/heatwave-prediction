@@ -98,7 +98,7 @@ from heatwave_ml.ingestion.landing import RawLandingZone
 from heatwave_ml.ingestion.settings import IngestionSettings
 
 zone = RawLandingZone(IngestionSettings.from_env().raw_data_dir)
-nasa = zone.read_latest("nasa_power")   # adds a chunk_key column
+nasa = zone.read_latest("nasa_power")  # adds a chunk_key column
 ```
 
 ## Ingestion metadata log

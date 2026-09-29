@@ -1,0 +1,270 @@
+{
+  "path": "heatwave_dataset.csv",
+  "sha256": "7412ab78bc55f986aad532839b094c4e5b41165037d1c17e644d384aede09ecd",
+  "synthetic": {
+    "generator": "imd-sim-v1",
+    "seed": 42,
+    "records_generated": 5000,
+    "landed_file": "synthetic/generator=imd-sim-v1/seed=42-n=5000/20260928T092124.805295Z-dd0e55.parquet",
+    "date_range": [
+      "2000-01-01",
+      "2024-12-31"
+    ]
+  },
+  "seasonal_normals": {
+    "file": "seasonal_normals.csv",
+    "sha256": "4838b2f345ebf7fcf0f4d152f3cb07f7253b646b97a1a1103f31e36de767cbff"
+  },
+  "rows": 4968,
+  "columns": [
+    "record_id",
+    "region_id",
+    "date",
+    "month",
+    "tmax_c",
+    "normal_tmax_c",
+    "rh_pct",
+    "wind_ms",
+    "solar_mj_m2",
+    "precip_mm",
+    "temp_deviation_c",
+    "risk_class",
+    "split"
+  ],
+  "feature_columns": [
+    "tmax_c",
+    "normal_tmax_c",
+    "rh_pct",
+    "wind_ms",
+    "solar_mj_m2",
+    "precip_mm",
+    "temp_deviation_c"
+  ],
+  "feature_labels": {
+    "tmax_c": "Maximum Temperature",
+    "normal_tmax_c": "Seasonal Normal Temperature",
+    "rh_pct": "Relative Humidity",
+    "wind_ms": "Wind Speed",
+    "solar_mj_m2": "Solar Radiation",
+    "precip_mm": "Precipitation",
+    "temp_deviation_c": "Temperature Deviation"
+  },
+  "feature_units": {
+    "tmax_c": "\u00b0C",
+    "normal_tmax_c": "\u00b0C",
+    "rh_pct": "%",
+    "wind_ms": "m/s at 2 m",
+    "solar_mj_m2": "MJ/m\u00b2/day",
+    "precip_mm": "mm/day",
+    "temp_deviation_c": "\u00b0C"
+  },
+  "non_feature_columns": {
+    "record_id": "synthetic record number (traceability)",
+    "region_id": "config/regions.yaml id (not a feature; field-availability \u00a72.3)",
+    "date": "calendar day (not a feature)",
+    "month": "input to the seasonal imputer only (not a feature)",
+    "split": "train / validation / test"
+  },
+  "target": "risk_class",
+  "classes": [
+    "NORMAL",
+    "HEATWAVE",
+    "SEVERE_HEATWAVE"
+  ],
+  "class_to_index": {
+    "NORMAL": 0,
+    "HEATWAVE": 1,
+    "SEVERE_HEATWAVE": 2
+  },
+  "labeling_rule_version": "IMD-HW-DAILY-v1",
+  "class_distribution": {
+    "rows": 4968,
+    "counts": {
+      "NORMAL": 4022,
+      "HEATWAVE": 521,
+      "SEVERE_HEATWAVE": 425
+    },
+    "share": {
+      "NORMAL": 0.8096,
+      "HEATWAVE": 0.1049,
+      "SEVERE_HEATWAVE": 0.0855
+    }
+  },
+  "split": {
+    "method": "stratified on risk_class (sklearn train_test_split, twice)",
+    "seed": 42,
+    "fractions": {
+      "train": 0.7,
+      "validation": 0.15,
+      "test": 0.15
+    },
+    "class_distribution": {
+      "train": {
+        "rows": 3476,
+        "counts": {
+          "NORMAL": 2814,
+          "HEATWAVE": 365,
+          "SEVERE_HEATWAVE": 297
+        },
+        "share": {
+          "NORMAL": 0.8096,
+          "HEATWAVE": 0.105,
+          "SEVERE_HEATWAVE": 0.0854
+        }
+      },
+      "validation": {
+        "rows": 746,
+        "counts": {
+          "NORMAL": 604,
+          "HEATWAVE": 78,
+          "SEVERE_HEATWAVE": 64
+        },
+        "share": {
+          "NORMAL": 0.8097,
+          "HEATWAVE": 0.1046,
+          "SEVERE_HEATWAVE": 0.0858
+        }
+      },
+      "test": {
+        "rows": 746,
+        "counts": {
+          "NORMAL": 604,
+          "HEATWAVE": 78,
+          "SEVERE_HEATWAVE": 64
+        },
+        "share": {
+          "NORMAL": 0.8097,
+          "HEATWAVE": 0.1046,
+          "SEVERE_HEATWAVE": 0.0858
+        }
+      }
+    },
+    "missing_values_left_for_imputer": {
+      "train": {
+        "rh_pct": 75,
+        "wind_ms": 62,
+        "solar_mj_m2": 70,
+        "precip_mm": 79
+      },
+      "validation": {
+        "rh_pct": 8,
+        "wind_ms": 11,
+        "solar_mj_m2": 15,
+        "precip_mm": 18
+      },
+      "test": {
+        "rh_pct": 19,
+        "wind_ms": 11,
+        "solar_mj_m2": 12,
+        "precip_mm": 10
+      }
+    }
+  },
+  "cleaning": {
+    "rows_in": 5000,
+    "rows_out": 4968,
+    "actions": [
+      {
+        "step": "invalid",
+        "column": "tmax_c",
+        "action": "out of bounds \u2192 missing",
+        "rows": 5
+      },
+      {
+        "step": "invalid",
+        "column": "rh_pct",
+        "action": "capped to 100.0",
+        "rows": 5
+      },
+      {
+        "step": "invalid",
+        "column": "rh_pct",
+        "action": "out of bounds \u2192 missing",
+        "rows": 4
+      },
+      {
+        "step": "invalid",
+        "column": "wind_ms",
+        "action": "capped to 0.0",
+        "rows": 7
+      },
+      {
+        "step": "invalid",
+        "column": "wind_ms",
+        "action": "out of bounds \u2192 missing",
+        "rows": 1
+      },
+      {
+        "step": "invalid",
+        "column": "solar_mj_m2",
+        "action": "capped to 0.0",
+        "rows": 6
+      },
+      {
+        "step": "invalid",
+        "column": "solar_mj_m2",
+        "action": "out of bounds \u2192 missing",
+        "rows": 2
+      },
+      {
+        "step": "invalid",
+        "column": "precip_mm",
+        "action": "capped to 0.0",
+        "rows": 9
+      },
+      {
+        "step": "invalid",
+        "column": "precip_mm",
+        "action": "out of bounds \u2192 missing",
+        "rows": 4
+      },
+      {
+        "step": "duplicates",
+        "column": null,
+        "action": "dropped: repeat region+date",
+        "rows": 20
+      },
+      {
+        "step": "duplicates",
+        "column": null,
+        "action": "of which the repeats disagreed",
+        "rows": 6
+      },
+      {
+        "step": "missing",
+        "column": "tmax_c",
+        "action": "dropped: Tmax missing",
+        "rows": 12
+      },
+      {
+        "step": "missing",
+        "column": "rh_pct",
+        "action": "left missing for the fitted imputer",
+        "rows": 102
+      },
+      {
+        "step": "missing",
+        "column": "wind_ms",
+        "action": "left missing for the fitted imputer",
+        "rows": 84
+      },
+      {
+        "step": "missing",
+        "column": "solar_mj_m2",
+        "action": "left missing for the fitted imputer",
+        "rows": 97
+      },
+      {
+        "step": "missing",
+        "column": "precip_mm",
+        "action": "left missing for the fitted imputer",
+        "rows": 107
+      }
+    ]
+  },
+  "label_vs_rule_on_observed_features": {
+    "agreement": 0.9599,
+    "disagreeing_rows": 199,
+    "max_distance_to_a_threshold_c_among_disagreeing": 1.02
+  }
+}

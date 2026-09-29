@@ -5,9 +5,9 @@ labelling rows with the IMD criteria in config/risk_classes.yaml. The adapter
 takes any generator with the ``Generator`` signature, so Part 03 swaps in its
 generator without touching ingestion.
 
-``generate_placeholder`` exists only so the landing path runs end to end now. It
-produces plausible, seasonally shaped, unlabelled rows, and it is **not** the
-training dataset.
+The real generator is ``heatwave_ml.preprocessing.synthetic.SyntheticGeneratorV1``.
+``generate_placeholder`` is the Part 02 stand-in, kept for the ingestion tests. It
+produces unlabelled rows and is **not** the training dataset.
 """
 
 from collections.abc import Callable
@@ -94,7 +94,8 @@ class SyntheticAdapter:
 
     @property
     def generator_version(self) -> str:
-        return getattr(self.generator, "version", self.generator.__name__)
+        version = getattr(self.generator, "version", None)
+        return version or self.generator.__name__
 
     def chunks(self) -> list[Chunk]:
         """One deterministic batch: same generator, seed and count always give the same rows."""

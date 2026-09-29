@@ -3,8 +3,14 @@
 # Do not copy these values into code; load this file.
 #
 # The thresholds follow the India Meteorological Department (IMD) heatwave criteria.
-# Part 03 confirms or refines them before training.
+# The full rule is specified in docs/data/heatwave-labeling-spec.md.
+#
+# Bump labeling_rule_version whenever the rule or any threshold below changes.
+# Every dataset and model records the version it was built with, and the old
+# labels stop being comparable with the new ones.
+labeling_rule_version: IMD-HW-DAILY-v1
 
+# Order matters: it is the ordinal encoding 0, 1, 2 used by every model.
 classes:
   - NORMAL
   - HEATWAVE
