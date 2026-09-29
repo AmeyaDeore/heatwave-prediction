@@ -43,14 +43,15 @@ The defaults work locally as they are. SQLite writes to `data/local/heatwave.db`
 ## 5. Data
 
 Choose one:
-- **ML track:** run the Part 02 ingestion to fill `data/raw/` (Part 03 then fills `data/processed/`):
+- **ML track:** the modelling dataset `data/heatwave_dataset.csv` and the seasonal normals are committed, so training (Part 04) can start straight away. To rebuild everything from source, run the Part 02 ingestion to fill `data/raw/`, then the Part 03 preparation:
   ```sh
-  uv run heatwave-ingest synthetic                        # seconds
   uv run heatwave-ingest forecast                         # seconds
   uv run heatwave-ingest historical --source nasa_power   # ~1 min, resumable
   uv run heatwave-ingest historical --source imd          # ~30 min, resumable; see docs/data/raw-landing-zone.md if IMD is unreachable
   uv run heatwave-ingest status
+  uv run heatwave-prepare all                             # normals → dataset → observed → sample (docs/data/preprocessing.md)
   ```
+  `heatwave-prepare dataset` needs only the committed `config/seasonal_normals.csv`: it generates and lands the synthetic batch itself, with no network access.
 - **Backend/frontend track:** use the committed `data/sample/` dataset, so you are not blocked on ML work.
 
 ## 6. Start the backend

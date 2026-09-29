@@ -24,3 +24,15 @@ uv run heatwave-ingest status
 - Contract and operations: [`docs/data/raw-landing-zone.md`](../docs/data/raw-landing-zone.md)
 - Field gaps Part 03 must handle: [`docs/data/field-availability.md`](../docs/data/field-availability.md)
 - Why these sources: [`docs/decisions/0002-data-sources.md`](../docs/decisions/0002-data-sources.md)
+
+## Preprocessing and feature engineering (Part 03)
+
+`src/heatwave_ml/features/` is the feature logic **shared with the backend**: the labelling rule, seasonal normals, `build_features`, and the fitted preprocessor. `src/heatwave_ml/preprocessing/` is training-only: the synthetic generator, cleaning and the split.
+
+```sh
+uv run heatwave-prepare all     # → config/seasonal_normals.csv, data/heatwave_dataset.csv, ...
+```
+
+- Label rule: [`docs/data/heatwave-labeling-spec.md`](../docs/data/heatwave-labeling-spec.md)
+- Synthetic data: [`docs/data/synthetic-dataset.md`](../docs/data/synthetic-dataset.md)
+- Cleaning, features, parity, split, handoff to Part 04: [`docs/data/preprocessing.md`](../docs/data/preprocessing.md)

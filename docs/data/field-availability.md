@@ -2,6 +2,14 @@
 
 **For:** the Part 03 owner (preprocessing and feature engineering). **Measured on:** real landed data, 2026-09-28. The numbers below come from `data/raw/`, not from documentation.
 
+> **Resolved in Part 03** ([preprocessing.md](preprocessing.md)):
+> - §2.1: normals derived as recommended, into `config/seasonal_normals.csv`.
+> - §2.2: Tmax and its normal both come from IMD in the real reference set; NASA Tmax is never used.
+> - §2.3: region is not a feature.
+> - §2.4: wind converted to 2 m (FAO-56) inside the shared `build_features`.
+> - §2.5: live features are built from the forecast feed only.
+> - §2.6: confirmed. One real heatwave date in 2000–2024, so the synthetic set enriches heat events.
+
 ## 1. Which source supplies which field
 
 | Field (brief) | IMD gridded | NASA POWER | Open-Meteo forecast | Synthetic |

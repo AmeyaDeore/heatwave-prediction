@@ -69,14 +69,18 @@ This is a common source of subtle bugs, so it gets its own section:
 
 ## 9. Acceptance criteria / "done"
 
-- [ ] Heatwave classification rule documented as an explicit, versioned specification.
-- [ ] Synthetic dataset generation script/process defined and reproducible with a fixed seed, producing the documented 5,000-record baseline (or the agreed volume).
-- [ ] All cleaning steps implemented with logged counts.
-- [ ] Temperature Deviation and any other engineered features computed and verified against a few hand-checked examples.
-- [ ] Feature computation logic packaged for reuse between training and inference.
-- [ ] Stratified train/test split produced and class distribution per split documented.
-- [ ] Final dataset file produced at the agreed path and schema, ready for Part 04.
+- [x] Heatwave classification rule documented as an explicit, versioned specification. *(`docs/data/heatwave-labeling-spec.md`, version `IMD-HW-DAILY-v1`, recorded in `config/risk_classes.yaml` as `labeling_rule_version`. Implemented once in `heatwave_ml.features.criteria.classify`; thresholds are read from config, never hard-coded.)*
+- [x] Synthetic dataset generation script/process defined and reproducible with a fixed seed, producing the documented 5,000-record baseline (or the agreed volume). *(`SyntheticGeneratorV1` (`imd-sim-v1`), seed 42, 5,000 records, calibrated on real IMD and NASA POWER climatology; spec in `docs/data/synthetic-dataset.md`. Landed through Part 02's adapter. A rerun and a forced re-generation both reproduce the dataset byte for byte, SHA-256 `7412ab78…09ecd`.)*
+- [x] All cleaning steps implemented with logged counts. *(`preprocessing/cleaning.py`: types → invalid (cap vs missing, per feature) → duplicates on region+date → Tmax-missing drop. Every action is counted in the manifest's `cleaning` section. Per-feature rationale in `docs/data/preprocessing.md` §3. Missing-value imputation is a *fitted* step (seasonal median, train-only) in `features/preprocessor.py`.)*
+- [x] Temperature Deviation and any other engineered features computed and verified against a few hand-checked examples. *(`temperature_deviation()`: 5 hand-checked values including float32/float-rounding edges, plus 12 hand-checked rule cases in `ml/tests/test_features.py`. The wind 10 m → 2 m conversion is checked against FAO-56.)*
+- [x] Feature computation logic packaged for reuse between training and inference. *(`heatwave_ml.features`: `build_features`, `model_input`, `preprocessor_for`, `SeasonalNormals`. A parity test asserts that training-shaped and forecast-shaped rows give identical features. The committed `data/sample/forecast_features.csv` is produced by the inference path.)*
+- [x] Stratified train/test split produced and class distribution per split documented. *(70/15/15 train/validation/test, stratified, seed 42. Per-split counts are in the manifest and in `docs/data/preprocessing.md` §6: train 3,476, validation 746, test 746, each about 81/10.5/8.6 %.)*
+- [x] Final dataset file produced at the agreed path and schema, ready for Part 04. *(`data/heatwave_dataset.csv`, the brief's path, with `data/heatwave_dataset.manifest.json`. Load it with `load_modeling_dataset()`. Smoke-checked end to end: sklearn Pipelines (LR/RF) fit and predict on it.)*
+
+**Also produced:** `config/seasonal_normals.csv` (IMD 1991–2020, needed at inference). `data/processed/observed_dataset.parquet`: real 2000–2024 history, labelled by the same rule, containing a single heatwave date (a false-alarm check for Part 05). 42 new tests in `ml/tests/test_features.py` and `test_preprocessing.py` (67 in the whole repository, all passing).
 
 ## 10. Handoff note template
 
 > Final modeling dataset at: <path>. Row count: <N>. Class distribution: <breakdown>. Feature list: <final columns>. Shared feature-computation module at: <path> (Part 07 must import this, not reimplement it). Train/test split seed: <value>.
+
+**Filled in:** see §8 of [`docs/data/preprocessing.md`](../docs/data/preprocessing.md).

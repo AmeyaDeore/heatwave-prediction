@@ -136,12 +136,23 @@ def main(argv: list[str] | None = None) -> int:
         chunks = adapter.forecast_chunks(regions, today, settings.forecast_days)
         request |= {"issued_for": today, "days": settings.forecast_days}
     else:
+        # Part 03's generator (labelled, calibrated). Imported here so the other
+        # commands don't need the seasonal-normals table to exist.
+        from heatwave_ml.features import RiskCriteria, SeasonalNormals
+        from heatwave_ml.preprocessing.settings import PreparationSettings
+        from heatwave_ml.preprocessing.synthetic import SyntheticGeneratorV1
+
+        prep = PreparationSettings.from_env()
+        generator = SyntheticGeneratorV1(
+            SeasonalNormals.load(prep.seasonal_normals_file), RiskCriteria.load(prep.risk_config)
+        )
         adapter = SyntheticAdapter(
             regions,
             count=args.count or settings.synthetic_record_count,
             seed=args.seed if args.seed is not None else settings.random_seed,
             start=settings.training_start,
             end=settings.training_end,
+            generator=generator,
         )
         chunks = adapter.chunks()
         request |= {
