@@ -145,8 +145,8 @@ Random Forest passes every gate, so the promotion is allowed. The pointer and hi
 1. Train: `uv run heatwave-train run` (a new run id; new data means a new dataset SHA-256 from Part 03).
 2. Evaluate: `uv run heatwave-evaluate run --run <new run id>`. **The current production model is included automatically as the champion** if it was trained on the same dataset version, so a retrain has to beat or tie it under the same policy. If the dataset changed, the champion is not re-scored (its training rows may overlap the new test split), and the report says so.
 3. Review `ml/registry/evaluations/<id>/report.md`, then `uv run heatwave-registry promote --evaluation <id>`. Promotion is its own explicit, attributed event (Part 18 §4: model promotion is separate from code deployment). A candidate that failed a gate cannot be promoted, and promoting anything other than the policy's choice needs `--reason` and is logged as an override.
-4. Part 06 rebuilds the explainer against the new pointer, then the backend restarts (Part 07 §5).
-5. **Rollback:** `uv run heatwave-registry rollback --to <previous version> --reason "<why>"`. The target must have been evaluated and must pass the gates, and its bundle must still resolve.
+4. Rebuild the explainer against the new pointer: `uv run heatwave-explain build` ([explainability.md §8](explainability.md#8-versioning-and-lifecycle-part-06-8)). The backend refuses to start with a stale one. Then restart the backend (Part 07 §5).
+5. **Rollback:** `uv run heatwave-registry rollback --to <previous version> --reason "<why>"`. The target must have been evaluated and must pass the gates, and its bundle must still resolve. Then run `uv run heatwave-explain build` again, as in step 4.
 
 Changing the criteria: edit `config/model_selection.yaml`, bump `policy_version`, and commit that on its own **before** the next evaluation.
 
