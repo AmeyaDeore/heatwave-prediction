@@ -292,12 +292,14 @@ def test_missing_explainer_is_a_clear_error(trained, tmp_path):
         HeatwaveExplainer.load(tmp_path / "nothing", trained["bundles"]["xgboost"])
 
 
-def _point_production_at(registry: ModelRegistry, bundle: ModelBundle) -> None:
+def _point_production_at(
+    registry: ModelRegistry, bundle: ModelBundle, version: str | None = None
+) -> None:
     registry.dir.mkdir(parents=True, exist_ok=True)
     registry.pointer_path.write_text(
         json.dumps(
             {
-                "model_version": bundle.version,
+                "model_version": version or bundle.version,
                 "model_family": bundle.family,
                 "bundle": str(bundle.directory),
                 "model_sha256": bundle.metadata["model_sha256"],
@@ -382,6 +384,29 @@ def test_builder_builds_logs_and_is_idempotent(builder_settings, trained):
     assert builder.build(by="tester")["status"] == "unchanged"
     assert len(builder.registry.events("explainer_built")) == 1
     assert builder.verify() == []
+
+
+def test_explainer_is_keyed_by_the_registered_version_not_the_bundles(builder_settings, trained):
+    """On a fresh clone the bundle is rebuilt by a reproducible retrain: same SHA-256,
+    new run id. The registry's version must stay the explainer's key and the version
+    every explanation reports, or build/verify look in the wrong place and the API's
+    model_version disagrees with its explainer_id."""
+    builder = ExplainerBuilder(builder_settings)
+    xgb = trained["bundles"]["xgboost"]
+    _point_production_at(builder.registry, xgb, version="xgboost-registered")
+    assert xgb.version != "xgboost-registered"
+
+    result = builder.build(by="tester")
+    assert result["directory"] == explainer_dir(builder.registry, "xgboost-registered")
+    assert result["manifest"]["model"]["model_version"] == "xgboost-registered"
+    assert builder.registry.events("explainer_built")[-1]["model_version"] == "xgboost-registered"
+    assert builder.verify() == []
+
+    explainer = load_production_explainer(builder.registry)
+    assert explainer.model_version == "xgboost-registered"
+    contract = explainer.explain(trained["data"].validation.head(1))[0].to_dict()["explanation"]
+    assert contract["model_version"] == "xgboost-registered"
+    assert contract["explainer_id"].startswith("xgboost-registered+shap.")
 
 
 def test_builder_refuses_to_silently_replace_a_different_explainer(builder_settings):

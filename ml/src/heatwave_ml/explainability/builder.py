@@ -172,13 +172,16 @@ class ExplainerBuilder:
         self.criteria = RiskCriteria.load(settings.risk_config)
         self.normals = SeasonalNormals.load(settings.seasonal_normals)
 
-    def bundle_for(self, model_version: str | None) -> ModelBundle:
-        """The production bundle, or a registered model by version."""
+    def bundle_for(self, model_version: str | None) -> tuple[ModelBundle, str]:
+        """The production bundle, or a registered model by version, and its registered
+        version. The two versions differ after a reproducible retrain on a fresh clone
+        (same SHA-256, new run id); explainers are keyed by the registered one."""
         if model_version is None:
-            return self.registry.load_production()[0]
+            bundle, pointer = self.registry.load_production()
+            return bundle, pointer["model_version"]
         for entry in self.registry.models():
             if entry["model_version"] == model_version:
-                return ModelBundle.load(self.registry.resolve(entry))
+                return ModelBundle.load(self.registry.resolve(entry)), model_version
         raise ExplainerError(f"{model_version} is not a registered (evaluated) model")
 
     def _data(self, bundle: ModelBundle):
@@ -202,7 +205,7 @@ class ExplainerBuilder:
         }
 
     def build(self, model_version: str | None = None, *, by: str | None, force: bool = False):
-        bundle = self.bundle_for(model_version)
+        bundle, version = self.bundle_for(model_version)
         data = self._data(bundle)
         background = sample_background(
             data.train, self.settings.background_rows, self.settings.seed
@@ -217,6 +220,7 @@ class ExplainerBuilder:
                 "sampling": "simple random, seeded; sorted by record_id",
             },
             seed=self.settings.seed,
+            model_version=version,
         )
         checks = self.check(explainer, data)
         failures = [c["expectation"] for c in checks["sanity"] if not c["passed"]]
@@ -231,7 +235,7 @@ class ExplainerBuilder:
         if failures:
             raise ExplainerError("Explainer checks failed: " + "; ".join(failures))
 
-        directory = explainer_dir(self.registry, bundle.version)
+        directory = explainer_dir(self.registry, version)
         existing = self._existing(directory)
         if existing and not force:
             same = (
@@ -251,7 +255,7 @@ class ExplainerBuilder:
         explainer.save(directory)
         self.registry.record_event(
             "explainer_built",
-            model_version=bundle.version,
+            model_version=version,
             model_sha256=bundle.metadata["model_sha256"],
             explainer_id=explainer.explainer_id,
             background_sha256=explainer.manifest["background"]["sha256"],
@@ -269,8 +273,8 @@ class ExplainerBuilder:
 
     def verify(self, model_version: str | None = None) -> list[str]:
         """Load the saved explainer (hash + probe checks) and re-derive its checks."""
-        bundle = self.bundle_for(model_version)
-        explainer = HeatwaveExplainer.load(explainer_dir(self.registry, bundle.version), bundle)
+        bundle, version = self.bundle_for(model_version)
+        explainer = HeatwaveExplainer.load(explainer_dir(self.registry, version), bundle)
         data = self._data(bundle)
         background = sample_background(
             data.train,
