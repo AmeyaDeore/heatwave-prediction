@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.13.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -202,10 +202,11 @@ wheels = [
 
 [[package]]
 name = "heatwave-api"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "fastapi" },
+    { name = "heatwave-ml" },
     { name = "httpx2" },
     { name = "pydantic-settings" },
     { name = "uvicorn", extra = ["standard"] },
@@ -214,6 +215,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "heatwave-ml", editable = "ml" },
     { name = "httpx2", specifier = ">=2.13.1" },
     { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },

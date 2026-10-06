@@ -292,18 +292,32 @@ class HeatwaveExplainer:
 
     @property
     def model_version(self) -> str:
-        return self.bundle.version
+        """The version the model is registered under, which the artifact is keyed by.
+
+        Not ``bundle.version``: bundles are git-ignored, and a fresh clone rebuilds them
+        with a reproducible retrain that gives the same model (same SHA-256, which
+        ``load`` checks) under a new run id. The registry's version stays its identity.
+        """
+        return self.manifest["model"]["model_version"]
 
     # -- building and loading ---------------------------------------------------------
 
     @classmethod
     def build(
-        cls, bundle: ModelBundle, background: pd.DataFrame, *, source: dict, seed: int
+        cls,
+        bundle: ModelBundle,
+        background: pd.DataFrame,
+        *,
+        source: dict,
+        seed: int,
+        model_version: str | None = None,
     ) -> "HeatwaveExplainer":
         """A new explainer over ``background`` (model inputs: features + month).
 
-        ``source`` records where the background came from. The manifest is completed
-        here, apart from ``background.sha256``, which ``save`` fills in.
+        ``source`` records where the background came from. ``model_version`` is the
+        version the registry knows the model by (default: the bundle's own). The
+        manifest is completed here, apart from ``background.sha256``, which ``save``
+        fills in.
         """
         background = background[["record_id", *bundle.input_columns]].reset_index(drop=True)
         engine = _Engine(bundle, background)
@@ -313,7 +327,7 @@ class HeatwaveExplainer:
             "explainer_id": None,
             "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "model": {
-                "model_version": bundle.version,
+                "model_version": model_version or bundle.version,
                 "model_family": bundle.family,
                 "model_sha256": bundle.metadata["model_sha256"],
                 "class_labels": bundle.metadata["class_labels"],
@@ -380,7 +394,7 @@ class HeatwaveExplainer:
             raise ExplainerError(
                 f"Stale explainer: {manifest_path} was built for "
                 f"{manifest['model']['model_version']} "
-                f"(sha256 {built_for[:12]}...), not {bundle.version} "
+                f"(sha256 {built_for[:12]}...), not the model at {bundle.directory} "
                 f"(sha256 {bundle.metadata['model_sha256'][:12]}...). "
                 "Rebuild it with `uv run heatwave-explain build`."
             )

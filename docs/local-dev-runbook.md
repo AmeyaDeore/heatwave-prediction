@@ -62,11 +62,20 @@ Choose one:
 
 ## 6. Start the backend
 
+The backend loads the production model and its SHAP explainer at startup, and refuses to start without them. On a fresh clone, run `uv run heatwave-train run` (step 5) first. Then:
+
 ```sh
+uv run heatwave-api check                  # optional: runs the full startup and reports
+uv run heatwave-api create-user duty --display-name "Duty Officer"   # prompts for a password
 uv run uvicorn heatwave_api.main:app --reload
 ```
 
-Check it: http://localhost:8000/health should return `{"status":"ok","env":"local"}`. Interactive docs are at http://localhost:8000/docs.
+The database (`data/local/heatwave.db`) is created and migrated on first start. Check it:
+- http://localhost:8000/health returns `{"status":"ok","env":"local"}` (liveness);
+- http://localhost:8000/api/v1/health reports the model version and explainer id (readiness);
+- interactive docs are at http://localhost:8000/docs, and the contract is [docs/api/README.md](api/README.md).
+
+`POST /api/v1/predict` fetches the live Open-Meteo forecast, so it needs internet access. To work offline, send the weather yourself with `conditions` (see the contract).
 
 ## 7. Start the frontend *(available after Part 10)*
 

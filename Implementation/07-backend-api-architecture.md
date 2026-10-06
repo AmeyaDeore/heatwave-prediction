@@ -78,13 +78,17 @@ Design each endpoint below with a full request/response contract (field names, t
 
 ## 8. Acceptance criteria / "done"
 
-- [ ] Full request/response contract documented for every endpoint in Section 3.
-- [ ] Response envelope, versioning, validation, CORS, and rate-limiting conventions decided and documented.
-- [ ] Model/explainer startup-loading and health-check behavior implemented.
-- [ ] Error-handling taxonomy implemented consistently across endpoints.
-- [ ] Draft-vs-issued alert status flow implemented as specified.
-- [ ] Each endpoint independently testable against a mocked database and mocked model/explainer.
+- [x] Full request/response contract documented for every endpoint in Section 3. *(`docs/api/README.md`: fields, types, required/optional and error cases for `POST /predict`, `GET /weather`, `GET`/`POST /alerts` (+ `GET`/`PATCH /alerts/{id}`), `GET /analytics`, the auth endpoints, and the reads the dashboard needs (`GET /predictions/latest`, `/predictions/{id}`, `/model`, `/reference`, `/health`). The generated `docs/api/openapi.json` has a test that fails when it is stale. Weather source decided: the backend calls Part 02's Open-Meteo adapter, cached in `weather_snapshots` (ADR 0006).)*
+- [x] Response envelope, versioning, validation, CORS, and rate-limiting conventions decided and documented. *(`{status, data, error, meta}` on every response, errors included; `/api/v1`; strict Pydantic bodies (unknown fields are a 422, nothing silently defaulted); CORS limited to configured origins, with no credentials; per-client limits on predict, alert writes and login, with `429 + Retry-After`; idempotent alert creation via `client_request_id`. Contract §1, ADR 0006.)*
+- [x] Model/explainer startup-loading and health-check behavior implemented. *(Loaded once in the lifespan through the registry, with one warm-up prediction. Any problem stops startup with the fixing command (exit 3; verified with a bad `MODEL_VERSION`). `uv run heatwave-api check` runs the same startup. Readiness: `GET /api/v1/health`; liveness: `GET /health`. A new model means promote, rebuild the explainer, restart.)*
+- [x] Error-handling taxonomy implemented consistently across endpoints. *(`client` / `auth` / `upstream` (502 bad data, 503 unreachable) / `internal`, with stable `error.code`s. No stack traces, paths or submitted values in responses. Partial failures surface per item: per-channel delivery status and `meta.warnings`; per-region `error` on `/weather`.)*
+- [x] Draft-vs-issued alert status flow implemented as specified. *(One record, `DRAFT ⇄ READY → ISSUED` via `PATCH status`. ISSUED locks it and dispatches each channel independently (`READY → PENDING → NOTIFIED/FAILED`, each committed on its own). Drafts never notify.)*
+- [x] Each endpoint independently testable against a mocked database and mocked model/explainer. *(92 backend tests run the real app and startup with a fake model (built from Part 06's own contract code), a fake forecast, the mock notifier and a throwaway SQLite file per test. A further 3 run the real production model through the API.)*
 
 ## 9. Handoff note template
 
 > API base URL: <value>. Endpoint contracts documented at: <path/link>. Auth requirement per endpoint: <summary>. Part 08 owner confirms schema matches these contracts; Part 10 (frontend) can now build against this documented contract even before every endpoint is fully implemented, using mocked responses.
+
+**Filled in:**
+
+> API base URL: **`http://localhost:8000/api/v1`** locally (`VITE_API_BASE_URL` + `/api/v1`). Endpoint contracts are documented at **[`docs/api/README.md`](../docs/api/README.md)**, machine-readable at [`docs/api/openapi.json`](../docs/api/openapi.json), and interactive at `/docs`. Auth per endpoint: alert writes (`POST /alerts`, `PATCH /alerts/{id}`) and `logout`/`me` always need a bearer token from `POST /auth/login`. Reads and `POST /predict` are open unless `AUTH_REQUIRED_FOR_READS=true` (Part 15 decides). Health and login are always open. Schema: Part 07 had to persist before Part 08 existed, so migration [`0001_initial.sql`](../backend/src/heatwave_api/db/migrations/0001_initial.sql) implements Part 08 §2–4. **The Part 08 owner reviews it** (and does the mockup cross-check and the backup plan), and changes it through new migrations. Part 10 can build against the documented contract now: every endpoint is implemented, and `POST /predict` with `conditions` works offline. Parts 09 and 15 plug in behind `notifications.Notifier` and `deps.current_user`.
