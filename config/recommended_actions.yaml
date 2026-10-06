@@ -1,0 +1,75 @@
+# Recommended authority actions (Part 07 §3.1, shown as "ACT NOW" in Parts 11 and 12).
+#
+# A deterministic mapping, never free text: the list for a prediction is
+#   1. every action for its risk class, in the order below, then
+#   2. every factor rule that matches its SHAP factors, in the order below,
+# without duplicates (by code). The same prediction always gets the same list.
+# Read by the backend (heatwave_api.actions), which checks the class names and
+# feature names against config/risk_classes.yaml and config/feature_labels.json.
+#
+# Bump actions_version whenever an action or a rule changes. Every prediction
+# response reports the version its actions came from.
+actions_version: ACT-v1
+
+classes:
+  NORMAL:
+    - code: ROUTINE_MONITORING
+      text: Continue routine monitoring of the 1-3 day heat forecast
+    - code: KEEP_PLAN_READY
+      text: Keep Heat Action Plan contact lists and cooling-centre rosters up to date
+  HEATWAVE:
+    - code: WARD_HEAT_ADVISORY
+      text: Issue a ward-level heat advisory
+    - code: ACTIVATE_COOLING_CENTRES
+      text: Activate cooling centres and public drinking-water points
+    - code: ALERT_HEALTH_FACILITIES
+      text: Alert hospitals and primary health centres to expect heat-related illness
+    - code: SHIFT_OUTDOOR_WORK
+      text: Advise employers to move outdoor work away from 12:00-16:00
+  SEVERE_HEATWAVE:
+    - code: SEVERE_WARNING_ALL_CHANNELS
+      text: Issue a severe heatwave warning on every public channel
+    - code: ACTIVATE_COOLING_CENTRES_EXTENDED
+      text: Open all cooling centres with extended hours
+    - code: HOSPITAL_SURGE_READINESS
+      text: Put hospitals on heat-illness surge readiness (beds, ORS, IV fluids)
+    - code: VULNERABLE_OUTREACH
+      text: Send field teams to check on elderly residents, outdoor workers and informal settlements
+    - code: SUSPEND_OUTDOOR_WORK
+      text: Suspend non-essential outdoor work and public events during 12:00-16:00
+
+# Extra actions when one factor drives a risk prediction. A rule matches when the
+# prediction's class is in `classes`, and the factor's SHAP direction and signed
+# share of the explanation (share_pct, the same number the bars show) meet the
+# condition. For the current model humidity and wind carry ~4 % and ~2 % of an
+# average explanation (docs/ml/explainability.md), so their rules fire only when
+# the model genuinely leaned on them.
+factor_rules:
+  - feature: rh_pct
+    direction: increases_risk
+    min_share_pct: 10
+    classes: [HEATWAVE, SEVERE_HEATWAVE]
+    action:
+      code: HUMID_HEAT_GUIDANCE
+      text: Add humid-heat guidance to advisories (sweat cools less; rest in shade more often)
+  - feature: wind_ms
+    direction: increases_risk
+    min_share_pct: 10
+    classes: [HEATWAVE, SEVERE_HEATWAVE]
+    action:
+      code: LOW_VENTILATION_PRIORITY
+      text: Prioritise densely built, poorly ventilated settlements for outreach
+  - feature: solar_mj_m2
+    direction: increases_risk
+    min_share_pct: 10
+    classes: [HEATWAVE, SEVERE_HEATWAVE]
+    action:
+      code: SHADE_PROVISION
+      text: Provide shade at queues, markets and transit stops
+  - feature: temp_deviation_c
+    direction: increases_risk
+    min_share_pct: 50
+    classes: [HEATWAVE, SEVERE_HEATWAVE]
+    action:
+      code: UNSEASONAL_HEAT_MESSAGE
+      text: Stress in public messaging that this heat is far above normal for the season

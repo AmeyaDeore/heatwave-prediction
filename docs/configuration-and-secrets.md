@@ -29,14 +29,20 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 | `MODEL_SELECTION_POLICY` | ml | no | 05 |
 | `RISK_CONFIG_PATH` | backend, ml | no | 01/03 |
 | `CORS_ALLOWED_ORIGINS` | backend | no | 07 |
-| `AUTH_SECRET_KEY`, `AUTH_TOKEN_TTL_MINUTES` | backend | **yes** (key) | 15 |
+| `RATE_LIMIT_PREDICT`, `RATE_LIMIT_ALERT_WRITES`, `RATE_LIMIT_LOGIN` | backend | no | 07 |
+| `RECOMMENDED_ACTIONS_FILE` | backend | no | 07 |
+| `WEATHER_HTTP_TIMEOUT_SECONDS`, `WEATHER_MAX_ATTEMPTS`, `WEATHER_CACHE_MINUTES` | backend | no | 07 |
+| `AUTH_SECRET_KEY`, `AUTH_TOKEN_TTL_MINUTES` | backend | **yes** (key) | 15 (used from 07) |
+| `AUTH_REQUIRED_FOR_READS` | backend | no | 07 (decided in 15) |
 | `NOTIFICATIONS_MODE` | backend | no | 09 |
+| `NOTIFICATIONS_MOCK_FAIL_CHANNELS` | backend | no | 07 |
 | `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS` | backend | **yes** (key) | 09 |
 | `SMS_PROVIDER`, `SMS_API_KEY`, `SMS_SENDER_ID` | backend | **yes** (key) | 09 |
 | `NASA_POWER_BASE_URL` | backend, ml | no (public API) | 02 |
 | `RAW_DATA_DIR`, `PROCESSED_DATA_DIR`, `SAMPLE_DATA_DIR` | ml | no | 02/03 |
-| `MONITORED_REGIONS_FILE` | ml | no | 02 |
-| `OPEN_METEO_FORECAST_URL`, `FORECAST_DAYS` | ml | no (public API) | 02 |
+| `MONITORED_REGIONS_FILE` | ml, backend | no | 02 |
+| `OPEN_METEO_FORECAST_URL` | ml, backend (live forecast, Part 07) | no (public API) | 02 |
+| `FORECAST_DAYS` | ml | no | 02 |
 | `IMD_GRIDDED_TMAX_URL`, `IMD_FETCH_MODE`, `IMD_INBOX_DIR`, `IMD_HISTORY_START_YEAR` | ml | no | 02 |
 | `NASA_POWER_RECENT_DAYS`, `SYNTHETIC_RECORD_COUNT` | ml | no | 02 |
 | `INGEST_HTTP_TIMEOUT_SECONDS`, `INGEST_MAX_ATTEMPTS`, `INGEST_BACKOFF_BASE_SECONDS` | ml | no | 02 |

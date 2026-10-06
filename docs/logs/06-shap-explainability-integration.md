@@ -94,3 +94,23 @@ Part 06 then added per-prediction SHAP explanations for the production XGBoost m
 ## Handoff
 
 Explainer `xgboost-20260928T100821Z-0bde51+shap.2154641e` at `ml/registry/explainers/xgboost-20260928T100821Z-0bde51/`, built against production model `xgboost-20260928T100821Z-0bde51` (SHA-256 `31f5f4c7…21c1aa57`). Load it with `load_production_explainer(ModelRegistry(...))`, and call `explainer.explain(model_input(build_features(raw, normals)))` → `.to_dict()`. The contract is in `docs/ml/explainability.md` §3, and the label table is `config/feature_labels.json`. Per request: p50 27.6 ms / p95 45.4 ms for prediction plus explanation, measured on the dev laptop.
+
+## Update — 2026-10-06: re-verified on a fresh clone; explainer keyed by the registered version
+
+**Why:** Part 07 started by re-checking the Part 06 checklist on a fresh clone (no `.venv`, bundles git-ignored).
+
+**Re-verification:**
+- `uv run heatwave-train run` rebuilt all three bundles. The SHA-256s were identical (training is reproducible), under a new run id `20261006T092518Z-fe520a`.
+- `heatwave-registry verify` passed, including "production explainer … matches and reproduces".
+- `heatwave-explain show` re-derived the recorded build exactly: additivity 2.19e-06, 7/7 sanity checks, p50 27.56 / p95 45.42 ms.
+- Whole-repo tests (run once, with the fix below): 158 passed, i.e. the 157 existing ones plus the new regression test. The production-model tests ran instead of skipping.
+- **Every checklist item in §9 holds.**
+
+**Defect found and fixed (`15f641d`):**
+- `ExplainerBuilder`, the `heatwave-explain` CLI and `HeatwaveExplainer.model_version` used the bundle's *own* `model_version`. That carries the run id it was trained under. The registry, the pointer and the artifact directory use the *registered* version (`xgboost-20260928T100821Z-0bde51`). After a reproducible retrain on a fresh clone, they differ.
+- So `heatwave-explain verify` failed with "No explainer at …/explainers/xgboost-20261006T092518Z-fe520a".
+- And every explanation would have reported a `model_version` that disagrees with its own `explainer_id` and the registry. That would have reached the API and Part 08's `predictions` table.
+- (`load_production_explainer` was already correct, which is why `heatwave-registry verify` passed.)
+- **Fix:** `bundle_for` returns `(bundle, registered_version)`. Build, verify, show and explain key the artifact by the registered version, and `build` records it in the manifest. `HeatwaveExplainer.model_version` now reads `manifest["model"]["model_version"]`. `load` still refuses any SHA-256 mismatch, so the registered version always names the same model.
+- **Regression test:** `test_explainer_is_keyed_by_the_registered_version_not_the_bundles`. It fails on the old code and passes now.
+- The committed explainer artifact is unchanged: it was built when the two versions coincided.
