@@ -104,13 +104,11 @@ def main(argv: list[str] | None = None) -> int:
                     "the training split, additivity and sanity checks pass, importance re-derived"
                 )
             return 1 if problems else 0
-        bundle = builder.bundle_for(args.model_version)
-        directory = explainer_dir(builder.registry, bundle.version)
+        bundle, version = builder.bundle_for(args.model_version)
+        directory = explainer_dir(builder.registry, version)
         if args.command == "show":
             if not (directory / MANIFEST_FILE).exists():
-                raise ExplainerError(
-                    f"No explainer for {bundle.version}; run `heatwave-explain build`"
-                )
+                raise ExplainerError(f"No explainer for {version}; run `heatwave-explain build`")
             manifest = json.loads((directory / MANIFEST_FILE).read_text(encoding="utf-8"))
             _print_manifest(manifest)
             return 0
