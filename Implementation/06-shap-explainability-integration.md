@@ -57,6 +57,8 @@ For a single prediction, the explanation output must contain, at minimum:
 
 **Also produced:** `heatwave-explain build · verify · show · explain`. `load_production_explainer()` refuses a stale explainer, and `heatwave-registry verify` checks it. Global importance is recorded separately from per-prediction explanations. There is ADR 0005, and 42 tests in `ml/tests/test_explainability.py` (157 in the whole repository, all passing). **Finding:** about 90 % of every explanation is temperature, because the labels follow the temperature-only IMD rule. Humidity and wind are correctly minor factors, so the UI mockup's "elevated humidity" wording would overstate them for this model.
 
+**Re-verified 2026-10-06 (start of Part 07)** on a fresh clone: every item above holds. One defect was fixed: the explainer is now keyed by the *registered* model version, not the rebuilt bundle's own run id (`15f641d`). See the Update in [Log 06](../docs/logs/06-shap-explainability-integration.md).
+
 ## 10. Handoff note template
 
 > Explainer artifact at: <path>, built against production model version <id>. Output contract: <link/summary>. Feature label mapping at: <path>. Per-request latency: <measured value>. Part 07 can now wire this into the prediction endpoint.

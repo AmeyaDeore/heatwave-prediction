@@ -32,6 +32,10 @@ select = [
     "SIM", # simplify
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency/parameter markers are meant to be used as argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["heatwave_api", "heatwave_ml"]
 
