@@ -2,7 +2,7 @@
 
 Goal: go from `git clone` to a running system in under 30 minutes. Commands are written for Git Bash / macOS / Linux. PowerShell equivalents are given where they differ.
 
-> **Validation status:** Steps 1–6 were checked by the author on Windows 11 on 2026-09-28. Steps 7–8 cannot be checked until Parts 07 and 10 exist. **A second contributor must dry-run the full runbook** once those parts land. Record the result in the table at the bottom.
+> **Validation status:** Steps 1–6 were checked by the author on Windows 11 on 2026-09-28. Steps 7–8 cannot be checked until Part 10 exists (step 6 was extended in Part 07 and checked on 2026-09-29). **A second contributor must dry-run the full runbook** once those parts land. Record the result in the table at the bottom.
 
 ## 1. Install pinned runtimes
 
@@ -38,7 +38,7 @@ cp frontend/.env.example frontend/.env.local
 
 PowerShell: `Copy-Item backend/.env.example backend/.env` (and likewise for the others).
 
-The defaults work locally as they are. SQLite writes to `data/local/heatwave.db`, notifications run in `mock` mode, and NASA POWER needs no API key. For anything beyond your own machine, generate a real `AUTH_SECRET_KEY`.
+The defaults work locally as they are. SQLite writes to `data/local/heatwave.db`, notifications run in `mock` mode (logged, never sent; recipients ending `.fail`/`.retry` simulate provider failures, docs/notifications §2), and NASA POWER needs no API key. For anything beyond your own machine, generate a real `AUTH_SECRET_KEY`.
 
 ## 5. Data
 
@@ -62,20 +62,28 @@ Choose one:
 
 ## 6. Start the backend
 
-The backend loads the production model and its SHAP explainer at startup, and refuses to start without them. On a fresh clone, run `uv run heatwave-train run` (step 5) first. Then:
-
 ```sh
-uv run heatwave-api check                  # optional: runs the full startup and reports
-uv run heatwave-api create-user duty --display-name "Duty Officer"   # prompts for a password
 uv run uvicorn heatwave_api.main:app --reload
 ```
 
-The database (`data/local/heatwave.db`) is created and migrated on first start. Check it:
-- http://localhost:8000/health returns `{"status":"ok","env":"local"}` (liveness);
-- http://localhost:8000/api/v1/health reports the model version and explainer id (readiness);
-- interactive docs are at http://localhost:8000/docs, and the contract is [docs/api/README.md](api/README.md).
+The model and explainer load at startup, so step 5's `heatwave-train run` (the git-ignored bundles) must have run first. Without them the service refuses to start and says why.
 
-`POST /api/v1/predict` fetches the live Open-Meteo forecast, so it needs internet access. To work offline, send the weather yourself with `conditions` (see the contract).
+Check it: http://localhost:8000/health should return `{"status":"ok","env":"local"}`, and http://localhost:8000/api/v1/health/ready should report the model version and `weather_data`. Interactive docs are at http://localhost:8000/docs. The full contract is [api/README.md](api/README.md).
+
+```sh
+curl -s -X POST localhost:8000/api/v1/predict -H "content-type: application/json" -d "{\"region_id\":\"mumbai\",\"lead_days\":1}"
+```
+
+If `weather_data` is `stale`, refresh the pipeline output: `uv run heatwave-ingest forecast && uv run heatwave-prepare sample`.
+
+The database (`data/local/heatwave.db`) is created and migrated automatically on first start. To inspect or back it up:
+
+```sh
+uv run heatwave-db status       # migration version, pending migrations, row counts
+uv run heatwave-db backup       # consistent copy into data/local/backups/
+```
+
+To start from an empty database, stop the API and delete `data/local/heatwave.db*`. Details: [database/README.md](database/README.md).
 
 ## 7. Start the frontend *(available after Part 10)*
 

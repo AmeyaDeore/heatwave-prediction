@@ -4,7 +4,6 @@ Relative paths in these settings are resolved against the repository root, so th
 service behaves the same regardless of the directory it is launched from.
 """
 
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
@@ -14,18 +13,6 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_DIR.parent
-
-DEFAULT_AUTH_SECRET = "change-me-local-only"  # pragma: allowlist secret
-_RATE = re.compile(r"^\s*(\d+)\s*/\s*(second|minute|hour)\s*$")
-_RATE_SECONDS = {"second": 1, "minute": 60, "hour": 3600}
-
-
-def parse_rate(value: str) -> tuple[int, int]:
-    """ "30/minute" -> (30, 60). "0/minute" disables the limit."""
-    match = _RATE.match(value)
-    if not match:
-        raise ValueError(f"rate limit {value!r} must look like '30/minute' (second|minute|hour)")
-    return int(match.group(1)), _RATE_SECONDS[match.group(2)]
 
 
 class Settings(BaseSettings):
@@ -38,7 +25,9 @@ class Settings(BaseSettings):
     app_env: Literal["local", "staging", "production", "test"] = "local"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
+    # Part 08. Relative sqlite paths resolve from the repo root; sqlite:///:memory: for tests.
     database_url: str = "sqlite:///data/local/heatwave.db"
+    database_backup_dir: Path = Path("data/local/backups")
 
     model_artifact_dir: Path = Path("ml/artifacts")
     model_registry_dir: Path = Path("ml/registry")
@@ -46,96 +35,73 @@ class Settings(BaseSettings):
     # newest": promotion is an explicit, recorded action. An exact version id pins one.
     model_version: str = "production"
     risk_config_path: Path = Path("config/risk_classes.yaml")
-    monitored_regions_file: Path = Path("config/regions.yaml")
     seasonal_normals_file: Path = Path("config/seasonal_normals.csv")
+    monitored_regions_file: Path = Path("config/regions.yaml")
+    alert_channels_file: Path = Path("config/alert_channels.yaml")
     recommended_actions_file: Path = Path("config/recommended_actions.yaml")
+
+    # Live inference reads the conditions the pipeline already ingested (Part 07 §2
+    # decision, docs/api/README.md): the backend makes no calls to weather providers.
+    weather_features_file: Path = Path("data/sample/forecast_features.csv")
+    weather_stale_after_hours: int = 36  # older data is still served, but flagged stale
+
+    rate_limit_predict_per_minute: int = 30
+    rate_limit_alerts_per_minute: int = 20
+    rate_limit_login_per_minute: int = 10
 
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"]
     )
-    # Per client address, per process (docs/api/README.md §Rate limiting).
-    rate_limit_predict: str = "30/minute"
-    rate_limit_alert_writes: str = "10/minute"
-    rate_limit_login: str = "5/minute"
 
-    auth_secret_key: SecretStr = SecretStr(DEFAULT_AUTH_SECRET)
-    auth_token_ttl_minutes: int = Field(default=60, ge=5, le=24 * 60)
-    # false: dashboard reads (GET endpoints and POST /predict) are open within the
-    # deployed environment; alert writes always need a token (Part 15 §5).
-    auth_required_for_reads: bool = False
+    auth_secret_key: SecretStr = SecretStr("change-me-local-only")
+    auth_token_ttl_minutes: int = 60
+    # Local/test only: one seeded demo official, until Part 15 adds real users (Part 08).
+    demo_user_username: str = "official"
+    demo_user_password: SecretStr = SecretStr("demo-official-local")
 
+    # Part 09, docs/notifications/README.md. mock = nothing leaves the process.
     notifications_mode: Literal["mock", "live"] = "mock"
-    # Mock mode only: channels whose delivery the mock reports as FAILED, so the
-    # partial-failure path can be exercised end to end (e.g. EMERGENCY_SERVICES).
-    notifications_mock_fail_channels: Annotated[list[str], NoDecode] = Field(default_factory=list)
-    email_provider: str = ""
+    # background = POST/PATCH returns with channels PENDING, a worker thread delivers and
+    # the UI polls GET /alerts/{id}; inline = deliver before responding (tests, debugging).
+    notifications_dispatch: Literal["background", "inline"] = "background"
+    notification_templates_file: Path = Path("config/notification_templates.yaml")
+    notification_recipients_file: Path = Path("config/notification_recipients.yaml")
+    notification_max_attempts: int = Field(3, ge=1, le=10)  # transient failures only
+    notification_backoff_seconds: float = Field(2.0, ge=0)  # doubles each retry
+    notification_timeout_seconds: float = Field(10.0, gt=0)  # per provider call
+    email_provider: Literal["", "sendgrid"] = ""
     email_api_key: SecretStr = SecretStr("")
     email_from_address: str = ""
-    sms_provider: str = ""
-    sms_api_key: SecretStr = SecretStr("")
-    sms_sender_id: str = ""
-
-    # Live inference reads the same Open-Meteo forecast adapter Part 02 built
-    # (docs/decisions/0006-backend-api.md). Tighter retries than the batch pipeline:
-    # a dashboard request should fail in seconds, not minutes.
-    open_meteo_forecast_url: str = "https://api.open-meteo.com/v1/forecast"
-    weather_http_timeout_seconds: float = Field(default=10.0, gt=0)
-    weather_max_attempts: int = Field(default=2, ge=1, le=5)
-    # A stored forecast younger than this is reused instead of re-fetched.
-    weather_cache_minutes: int = Field(default=60, ge=0)
+    sms_provider: Literal["", "twilio"] = ""
+    sms_account_sid: str = ""
+    sms_api_key: SecretStr = SecretStr("")  # Twilio auth token
+    sms_sender_id: str = ""  # Twilio "From" number
 
     nasa_power_base_url: str = "https://power.larc.nasa.gov/api/temporal/daily/point"
 
-    @field_validator("cors_allowed_origins", "notifications_mock_fail_channels", mode="before")
+    @field_validator("cors_allowed_origins", mode="before")
     @classmethod
-    def _split_list(cls, value: object) -> object:
+    def _split_origins(cls, value: object) -> object:
         if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
-
-    @field_validator("rate_limit_predict", "rate_limit_alert_writes", "rate_limit_login")
-    @classmethod
-    def _check_rate(cls, value: str) -> str:
-        parse_rate(value)
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
     @field_validator(
         "model_artifact_dir",
         "model_registry_dir",
         "risk_config_path",
-        "monitored_regions_file",
         "seasonal_normals_file",
+        "monitored_regions_file",
+        "alert_channels_file",
         "recommended_actions_file",
+        "weather_features_file",
+        "database_backup_dir",
+        "notification_templates_file",
+        "notification_recipients_file",
     )
     @classmethod
     def _resolve_from_repo_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else REPO_ROOT / value
-
-    @property
-    def runs_dir(self) -> Path:
-        return self.model_artifact_dir / "runs"
-
-    @property
-    def sqlite_path(self) -> Path:
-        """The SQLite file DATABASE_URL names (relative paths resolve from the repo root)."""
-        prefix = "sqlite:///"
-        if not self.database_url.startswith(prefix):
-            raise ValueError(
-                f"DATABASE_URL {self.database_url.split(':', 1)[0]}:... is not supported yet: "
-                "the service runs on SQLite (sqlite:///path). PostgreSQL is a later migration."
-            )
-        path = Path(self.database_url[len(prefix) :])
-        return path if path.is_absolute() else REPO_ROOT / path
-
-    def check_deployable(self) -> None:
-        """Refuse settings that are only safe on a developer laptop."""
-        if self.app_env in ("staging", "production"):
-            secret = self.auth_secret_key.get_secret_value()
-            if secret == DEFAULT_AUTH_SECRET or len(secret) < 32:
-                raise ValueError(
-                    "AUTH_SECRET_KEY must be set to a random value of at least 32 characters "
-                    f"in {self.app_env}"
-                )
 
 
 @lru_cache

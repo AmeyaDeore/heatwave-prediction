@@ -24,6 +24,8 @@ Keep PRs to one part, or a slice of one. Large parts (07, 10) should land as sev
 
 Part 18 builds its changelog and versioning from these prefixes.
 
+> **No AI co-author trailers.** Never add Claude (or any AI tool) as a co-author: no `Co-Authored-By:` line and no "Generated with Claude Code" footer in commit messages or PR descriptions. Commits carry the human author only.
+
 ## Pull requests
 
 - `main` is protected: at least **1 approving review** and passing checks are required. Nobody pushes to it directly.

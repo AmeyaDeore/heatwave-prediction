@@ -1,40 +1,41 @@
-# ADR 0006 — Backend API: contract conventions, data access, live weather, lifecycle
+# ADR 0006 — Backend API: conventions, weather source, seams
 
-**Status:** Accepted, 2026-10-06 (Part 07)
+**Status:** Accepted, 2026-09-29 (Part 07)
 
 ## Decisions
 
 | Need | Choice | Why |
 |------|--------|-----|
-| Where live weather comes from (Part 07 §2) | The backend calls **Part 02's Open-Meteo forecast adapter** itself, runs Part 03's `build_features`, and stores the readings in `weather_snapshots`. A stored forecast younger than `WEATHER_CACHE_MINUTES` (60) is reused. Callers may supply `conditions` instead | One adapter and one feature path for training and serving, so features cannot drift. The frontend sends only a region. Caching in the database (not in process memory) keeps the service stateless, and leaves a record of the inputs every prediction saw. A separate ingestion job would add a scheduler and a staleness problem for no gain at 5 regions |
-| What one prediction is | A **run**: the 1–3 day window for one region. Every day gets its own risk class and full SHAP explanation, and the top-level fields are the **peak day** (highest class, then higher 1 − P(NORMAL), then earlier) | Every number shown traces to a stored, explained prediction for a specific day. The banner shows the worst day in the window, which is what an authority must act on |
-| Explainability in the same response (CLAUDE.md) | The Part 06 contract is returned **unchanged** under `explanation`, for the peak day and for every day in `daily[]`. The Pydantic response model mirrors it field by field | No add-on endpoint, and no reshaping that could drift. A change in the ML output fails response validation |
-| Recommended actions (§3.1) | A deterministic mapping in `config/recommended_actions.yaml`: the risk class's fixed list, then factor rules on SHAP `direction` and `share_pct`. It is versioned (`actions_version`), and each action carries its `reason` | Editable wording without code changes, testable, and every action says why it is there. The factor thresholds are set so that minor factors (humidity ≈ 4 %, wind ≈ 2 % of an average explanation) only trigger an action when the model really leaned on them |
-| Response envelope (§4) | `{status, data, error, meta}` on every `/api/v1` response, errors included. `meta` carries `request_id`, `api_version`, `warnings` and `idempotent_replay` | One code path for the frontend. Partial failures surface as `warnings` on a 2xx |
-| Versioning | Path prefix `/api/v1`. Additive changes stay in v1, breaking changes go to v2 | Visible, simple, and cache- and proxy-friendly |
-| Error taxonomy (§6) | Four categories, `client` / `auth` / `upstream` / `internal`, each with fixed status codes and stable `error.code`s. Messages carry no stack traces, SQL or paths. Upstream is 503 when unreachable and 502 when the data is bad | The UI can tell "fix your input", "sign in", "try again later" and "our bug" apart. Logs carry the detail under the same request id |
-| Data access | Standard-library `sqlite3`, all SQL in one `Repository` class, numbered SQL migrations (`db/migrations/NNNN_*.sql`) with SHA-256 checks, foreign keys `ON`, WAL. The schema uses portable types (ISO text timestamps, CHECK enums) | Part 08's approach (migration scripts from day one). One file to touch for PostgreSQL. No ORM dependency for 12 tables. An edited, already-applied migration is refused |
-| Auth for writes (§3.6) | Signed HS256 JWTs (stdlib HMAC) with expiry and `jti`. `scrypt` password hashes. Logout revokes the `jti` in the database. Alert writes always require a token. Reads are open unless `AUTH_REQUIRED_FOR_READS=true` | Stateless tokens (Part 15 §3). A revocation list makes logout real. No extra dependency. Part 15 owns the final per-endpoint policy, and the switch lets it decide without code changes |
-| Rate limiting | An in-process fixed window per client address, on `predict`, `alert_writes` and `login`, configurable. `429` with `Retry-After` | Stops runaway poll loops and password guessing. Shared counters (Redis) are not worth adding for one instance |
-| Idempotency (§4) | A client-generated `client_request_id` (UUID) is unique per alert. The same id and body replays (200), and the same id with a different body is a 409 | Guards against double submission without making identical alerts impossible. Every new alert needs a new id |
-| Draft vs issued (§3.4) | One record, an explicit `status` (`DRAFT ⇄ READY → ISSUED`), changed through `PATCH`. ISSUED is final. Only reaching ISSUED dispatches | As specified: no separate endpoints, and saving a draft can never notify anyone |
-| Partial delivery failure (§6) | Per-channel status rows (`READY → PENDING → NOTIFIED/FAILED`), each committed after its own attempt. A channel exception is caught and recorded as FAILED, and failures are listed in `meta.warnings` | A failed channel is visible on the record and in the response, and never blocks the other channels |
-| Dispatch timing | Synchronous within the request, through a `Notifier` interface. The mock notifier logs, and can be told to fail chosen channels | The mock is instant, so the issue response shows real statuses. Part 09 owns providers, retries and any move to a background task, behind the same interface |
-| Model lifecycle (§5) | Load the model and explainer once at startup through the registry, warm up with one prediction, and **refuse to start** on any problem. A new model means promote, rebuild the explainer, restart | Fails at deploy time rather than on a user's first request. Hot-swapping adds failure modes that this scale does not need |
-| Concurrency | Sync route handlers (FastAPI's thread pool) and one SQLite connection per request. Model and SHAP calls go through a lock | SQLite and SHAP calls are blocking. SHAP/XGBoost thread-safety is not documented, and a ~30 ms critical section is negligible at this load |
+| Live weather for inference (Part 07 §2 asks to decide) | Read the conditions the pipeline already ingested (`WEATHER_FEATURES_FILE`); the backend never calls a weather provider | One fetch and unit-normalisation path (Parts 02/03), a fast API that tests offline, no provider credentials in the backend, and an outage becomes *stale, flagged* data rather than failed requests. Cost: someone must schedule the ingestion (Part 16/18), and until then the sample ages. |
+| What `POST /predict` takes (§3.1) | `region_id` + `lead_days` (0–3). No raw feature values | The UI names a place, not measurements. Accepting caller-supplied features would need its own validation and would let a client bypass the shared feature path. It can be added later without breaking the contract. |
+| Route prefix and versioning (§4) | `/api/v1/...` | A version segment lets the contract evolve behind `/v2`. The plan's `/api/predict` etc. are the same routes with the segment inserted. |
+| Envelope (§4) | `{status, data, meta:{request_id}}` / `{status:"error", error:{kind, code, message, details}, meta}` | One shape for everything. `kind` (client / upstream / internal) is in the body as well as the log, so the UI can say "try again later" vs "fix your input". |
+| Validation (§4) | Pydantic, `extra="forbid"` on request bodies, 422 listing field + message only | A typo is an error, never a silent default. Submitted values are never echoed back (they could be attacker-chosen text). |
+| Explanation (core contract) | Part 06's `Explanation.to_dict()` returned unchanged inside the prediction | The contract is defined once, in Part 06, and tested there. The API adds fields around it, never inside. |
+| Recommended actions (§3.1) | `config/recommended_actions.yaml`: class → list, plus factor-triggered extras; a pure function | Deterministic and auditable, and the authority can edit the wording without a code change. Free text was ruled out by the plan. |
+| Alert lifecycle (§3.4) | One `status` field: DRAFT → READY → ISSUED on one record, via `POST` (initial status) and `PATCH` (transitions and edits). ISSUED is immutable | Matches the UI's two-step flow with one record and no second endpoint. A wrong warning is corrected by a new alert, so the issued history stays trustworthy. |
+| Issue and partial failure (§6) | Save ISSUED with every channel PENDING, dispatch each, record each result. A failed channel is FAILED + reason; the alert stays ISSUED and the response is 201 with `delivery_summary` | A crash mid-dispatch leaves a truthful record. One dead channel never hides behind a whole-request "success" or blocks the others. |
+| Idempotency (§4) | Client-generated `client_request_id` (UUID), per user. Replay with identical content → 200 + the original alert. Same id, different content → 409. New id → always a new alert | Guards double-submit from the UI without merging genuinely separate warnings. |
+| Rate limiting (§4) | In-process sliding window per client IP: predict 30/min, alert writes 20/min, login 10/min | Stops a runaway poll loop and slows password guessing. A shared store is unnecessary for one node. |
+| Auth now (§3.6) | scrypt password hashes, HMAC-signed expiring bearer tokens, a `UserStore` seam, one seeded demo user only in `local`/`test` | Part 07 must gate writes now, but users live in Part 08's table and Part 15 owns the design. Built on the standard library, so Part 15 replaces the store rather than the mechanism. |
+| Persistence (Part 08 in parallel) | `Repository` Protocol + an in-memory implementation | Keeps every endpoint testable against a mocked database (§8) and lets Part 08 land without touching the routers. **The in-memory store loses data on restart and must not be deployed.** |
+| Notifications (Part 09) | `Notifier` Protocol + `MockNotifier` (logs only) | The same seam argument. `NOTIFICATIONS_MODE` will select the real one. *(Superseded by [ADR 0008](0008-notification-service.md): `NotificationService` replaced `MockNotifier`.)* |
+| Startup and updates (§5) | Load model + explainer in `lifespan`; any failure stops the process. A new model = promote, rebuild explainer, restart. No hot-swap | A broken service never looks healthy, and Part 06's stale-explainer refusal becomes a startup failure. |
+| Concurrency | SHAP calls serialised by a lock; endpoints are sync functions run in the thread pool | SHAP's C extension is not documented as thread-safe. About 35 ms per request makes one process plenty. |
+| Analytics numbers (§3.5) | Model performance from the promotion pointer; trend, events and distribution from stored predictions | The performance figures are static per model version. Real history arrives with Parts 08/14. |
 
 ## Alternatives rejected
 
-- **Frontend sends raw features:** this puts unit conversion and seasonal normals in the browser, the exact training/serving drift Part 03 was built to prevent. Supplying conditions is still supported, but it goes through the same server-side feature path.
-- **Separate `/explain` endpoint:** explicitly ruled out by CLAUDE.md (explanations are a core contract).
-- **SQLAlchemy/Alembic:** heavier than this schema needs, and plain numbered SQL files satisfy Part 08 §6. Revisit at the PostgreSQL migration.
-- **Two endpoints for draft and issue:** ruled out by Part 07 §3.4.
-- **Background dispatch now:** with only a mock notifier, it would add polling complexity with nothing to wait for. Part 09 decides.
-- **A process-wide forecast cache:** state that is lost on restart, and different per worker.
+- **Backend calls Open-Meteo directly:** duplicates the fetch and unit logic, and turns a provider outage into request failures.
+- **Two endpoints (`/alerts/draft`, `/alerts/issue`):** two ways to make one record, and the transition between them becomes ad hoc.
+- **Hiding a channel failure behind a 5xx or a bare 200:** a 5xx suggests the alert was not created, and a bare 200 hides that a hospital was not notified.
+- **Idempotency by content hash:** two real warnings for the same region and text are legitimate.
+- **JWT library / passlib:** more dependencies for what the standard library does in about 60 lines, in a part that Part 15 will replace anyway.
+- **Pinned `MODEL_VERSION`:** the explainer and the pointer must agree, so a second way to choose a model invites a mismatch. Promote instead.
 
 ## Consequences
 
-- `heatwave-ml` is now a backend dependency (workspace source). The backend imports features, the registry, the explainer and the Open-Meteo adapter, and reimplements none of them.
-- Part 07 needed tables before Part 08 existed, so migration `0001_initial` implements Part 08 §2–4 (regions, weather_snapshots, prediction_runs + predictions + prediction_factors, users, revoked_tokens, alerts, alert_channel_deliveries, model_metadata). Part 08 reviews it, does the field-by-field mockup cross-check, and adds changes as new migrations.
-- Analytics are empty until data accumulates. There is no historical backfill of `weather_snapshots`/`predictions` yet (Part 08/16).
-- Rate-limit counters are per process: with N workers, the effective limit is N times the setting.
+- Part 08 must implement `Repository` and add a unique key on `(created_by, client_request_id)`. *(Done 2026-10-07, ADR 0007.)*
+- Part 09 implements `Notifier.send` and must return FAILED with a reason rather than raise.
+- Part 15 replaces `UserStore` and extends `current_user` with roles and region scoping.
+- Part 18 needs proxy-aware client IPs, a schedule for the ingestion, and a real `AUTH_SECRET_KEY`.

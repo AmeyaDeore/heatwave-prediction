@@ -1,75 +1,36 @@
-# Recommended authority actions (Part 07 §3.1, shown as "ACT NOW" in Parts 11 and 12).
+# Deterministic mapping from a prediction to the authority actions the UI shows
+# (Part 07 §3.1). Same risk class + same top factors => the same list, in this order.
+# Edit wording here, never in code. Bump `version` when the mapping changes.
 #
-# A deterministic mapping, never free text: the list for a prediction is
-#   1. every action for its risk class, in the order below, then
-#   2. every factor rule that matches its SHAP factors, in the order below,
-# without duplicates (by code). The same prediction always gets the same list.
-# Read by the backend (heatwave_api.actions), which checks the class names and
-# feature names against config/risk_classes.yaml and config/feature_labels.json.
-#
-# Bump actions_version whenever an action or a rule changes. Every prediction
-# response reports the version its actions came from.
-actions_version: ACT-v1
+# `by_risk_class` is the base list. `by_factor` adds extra actions when a feature is
+# among the top `top_n` ranked factors AND moves risk in the stated direction; extras
+# follow the base list, skip duplicates, and apply only to a risk class listed in `for`.
+version: RA-v1
 
-classes:
+by_risk_class:
   NORMAL:
-    - code: ROUTINE_MONITORING
-      text: Continue routine monitoring of the 1-3 day heat forecast
-    - code: KEEP_PLAN_READY
-      text: Keep Heat Action Plan contact lists and cooling-centre rosters up to date
+    - Continue routine monitoring of the daily forecast
   HEATWAVE:
-    - code: WARD_HEAT_ADVISORY
-      text: Issue a ward-level heat advisory
-    - code: ACTIVATE_COOLING_CENTRES
-      text: Activate cooling centres and public drinking-water points
-    - code: ALERT_HEALTH_FACILITIES
-      text: Alert hospitals and primary health centres to expect heat-related illness
-    - code: SHIFT_OUTDOOR_WORK
-      text: Advise employers to move outdoor work away from 12:00-16:00
+    - Issue ward-level heat advisory
+    - Activate cooling centres in high-exposure wards
+    - Alert hospitals and health centres to expect heat-related cases
+    - Advise outdoor workers to avoid work between 12:00 and 16:00
   SEVERE_HEATWAVE:
-    - code: SEVERE_WARNING_ALL_CHANNELS
-      text: Issue a severe heatwave warning on every public channel
-    - code: ACTIVATE_COOLING_CENTRES_EXTENDED
-      text: Open all cooling centres with extended hours
-    - code: HOSPITAL_SURGE_READINESS
-      text: Put hospitals on heat-illness surge readiness (beds, ORS, IV fluids)
-    - code: VULNERABLE_OUTREACH
-      text: Send field teams to check on elderly residents, outdoor workers and informal settlements
-    - code: SUSPEND_OUTDOOR_WORK
-      text: Suspend non-essential outdoor work and public events during 12:00-16:00
+    - Issue ward-level heat advisory
+    - Activate cooling centres in high-exposure wards
+    - Alert hospitals and health centres to expect heat-related cases
+    - Advise outdoor workers to avoid work between 12:00 and 16:00
+    - Brief emergency services and put field response teams on standby
+    - Request public display boards to show the heat warning
 
-# Extra actions when one factor drives a risk prediction. A rule matches when the
-# prediction's class is in `classes`, and the factor's SHAP direction and signed
-# share of the explanation (share_pct, the same number the bars show) meet the
-# condition. For the current model humidity and wind carry ~4 % and ~2 % of an
-# average explanation (docs/ml/explainability.md), so their rules fire only when
-# the model genuinely leaned on them.
-factor_rules:
+by_factor:
   - feature: rh_pct
     direction: increases_risk
-    min_share_pct: 10
-    classes: [HEATWAVE, SEVERE_HEATWAVE]
-    action:
-      code: HUMID_HEAT_GUIDANCE
-      text: Add humid-heat guidance to advisories (sweat cools less; rest in shade more often)
+    top_n: 3
+    for: [HEATWAVE, SEVERE_HEATWAVE]
+    action: Add humid-heat guidance to the advisory (body cooling is reduced at high humidity)
   - feature: wind_ms
-    direction: increases_risk
-    min_share_pct: 10
-    classes: [HEATWAVE, SEVERE_HEATWAVE]
-    action:
-      code: LOW_VENTILATION_PRIORITY
-      text: Prioritise densely built, poorly ventilated settlements for outreach
-  - feature: solar_mj_m2
-    direction: increases_risk
-    min_share_pct: 10
-    classes: [HEATWAVE, SEVERE_HEATWAVE]
-    action:
-      code: SHADE_PROVISION
-      text: Provide shade at queues, markets and transit stops
-  - feature: temp_deviation_c
-    direction: increases_risk
-    min_share_pct: 50
-    classes: [HEATWAVE, SEVERE_HEATWAVE]
-    action:
-      code: UNSEASONAL_HEAT_MESSAGE
-      text: Stress in public messaging that this heat is far above normal for the season
+    direction: decreases_risk
+    top_n: 3
+    for: [NORMAL]
+    action: Continue routine monitoring; wind is currently limiting heat build-up

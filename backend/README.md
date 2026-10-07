@@ -1,36 +1,22 @@
 # backend/
 
-FastAPI service (Part 07; Parts 08, 09 and 15 build on it). Every prediction response carries its SHAP explanation, and the risk classes are exactly `NORMAL` / `HEATWAVE` / `SEVERE_HEATWAVE`.
+FastAPI service (Parts 07–09, 15). Every prediction response carries its SHAP top factors, and the risk classes are exactly `NORMAL` / `HEATWAVE` / `SEVERE_HEATWAVE`.
 
-- **Contract:** [`docs/api/README.md`](../docs/api/README.md) and the generated [`docs/api/openapi.json`](../docs/api/openapi.json). Decisions are in [ADR 0006](../docs/decisions/0006-backend-api.md).
-- **Config:** copy `.env.example` to `.env`. The defaults work locally.
+- Package: `src/heatwave_api/`.
+  - `app.py` is the factory (startup checks, middleware, error handlers), `main.py` the entry point, `config.py` the typed settings.
+  - `routes.py` has every endpoint, `schemas.py` the contracts, `errors.py` the error taxonomy, `envelope.py` the response shape.
+  - `predictor.py` loads the production model and explainer, `weather.py` reads the pipeline's conditions, `alerts.py` is the DRAFT → READY → ISSUED flow. `auth.py`, `ratelimit.py`, `notifier.py` (the seam) with `notifications/` (Part 09: templates, recipients, SendGrid/Twilio/mock providers, retry + audit, background dispatcher; see `docs/notifications/README.md`) and `repositories.py` (the persistence protocol) round it out.
+  - `db/` is the SQLite layer (Part 08): `migrations/NNNN_*.sql`, `migrate.py`, `repository.py` (`SqliteRepository`, `SqliteUserStore`), `cli.py` (`heatwave-db`).
+- Contract, decisions and limits: [docs/api/README.md](../docs/api/README.md). Schema, migrations, backups: [docs/database/README.md](../docs/database/README.md).
+- Tests: `tests/`
+- Config: copy `.env.example` to `.env`.
 
 ```sh
-uv sync --package heatwave-api                    # pulls in heatwave-ml (features, registry, explainer)
-uv run heatwave-train run                         # fresh clone only: rebuild the git-ignored model bundles
-uv run heatwave-api check                         # full startup check without serving
-uv run heatwave-api create-user duty --display-name "Duty Officer"   # prompts for a password
-uv run uvicorn heatwave_api.main:app --reload     # http://localhost:8000/docs
-uv run pytest backend/tests
-uv run heatwave-api openapi                       # after any contract change: regenerate docs/api/openapi.json
+uv sync --package heatwave-api
+uv run uvicorn heatwave_api.main:app --reload     # http://localhost:8000/health, docs at /docs
+                                                  # needs the trained bundles: uv run heatwave-train run
+uv run pytest backend/tests                       # in-memory SQLite, never touches data/local/
+
+uv run heatwave-db status                         # migration version + row counts (local migrates itself at startup)
+uv run heatwave-db backup                         # consistent copy into data/local/backups/
 ```
-
-## Layout (`src/heatwave_api/`)
-
-| Module | Role |
-|---|---|
-| `main.py` | App factory: lifespan (fail-fast startup), CORS, request-id and logging middleware, `/health` |
-| `api.py` | The `/api/v1` routes. Thin: validate, delegate, wrap in the envelope |
-| `schemas.py` | Every request and response body (the contract), plus the envelope |
-| `errors.py`, `responses.py` | The error taxonomy (client/auth/upstream/internal), and the envelope for every failure |
-| `services.py`, `deps.py` | The startup container, and per-request dependencies (DB connection, current user, rate limits) |
-| `inference.py` | Loads the production model and explainer once, and runs `build_features` then `explain` |
-| `weather.py` | The live forecast through Part 02's Open-Meteo adapter, cached in `weather_snapshots` |
-| `predictions.py`, `alerts.py`, `analytics.py` | Endpoint logic: prediction runs, the alert status flow and dispatch, analytics and current weather |
-| `actions.py` | The deterministic recommended-actions mapping (`config/recommended_actions.yaml`) |
-| `notifications.py` | The `Notifier` boundary to Part 09, and the mock notifier |
-| `security.py`, `ratelimit.py`, `observability.py` | Tokens and password hashes, rate limits, JSON logs |
-| `db/` | SQLite connection, numbered SQL migrations (`migrations/`), and the `Repository` (all SQL) |
-| `cli.py` | `heatwave-api migrate · create-user · set-password · check · openapi` |
-
-Tests (`tests/`) run the real app and the real startup against a fake model, a fake forecast and the mock notifier, with a fresh SQLite file per test. `test_production_model.py` also runs the real production model and explainer through the API, and is skipped until the bundles are rebuilt.

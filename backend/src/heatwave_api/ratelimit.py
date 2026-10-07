@@ -1,37 +1,52 @@
-"""A fixed-window rate limiter, per client address and per bucket (Part 07 §4).
+"""In-process sliding-window rate limiting (Part 07 §4).
 
-In-process memory: each worker counts on its own, and a restart resets the counts.
-That is enough for what it is for (a misbehaving poll loop or a password-guessing
-script), and it keeps the service free of shared state. Behind a reverse proxy the
-client address is the proxy's unless the server is started with --proxy-headers
-(Part 18).
+Protects predict, alert creation and login from a runaway poll loop or a brute-force
+attempt. State is per process: fine for the single-node deployment this project targets;
+behind several workers the effective limit is multiplied, and a shared store would be
+needed (open item in docs/api/README.md).
 """
 
-import math
 import threading
 import time
+from collections import defaultdict, deque
+from collections.abc import Callable
+
+from fastapi import Request
+
+from heatwave_api.errors import TooManyRequests
 
 
 class RateLimiter:
-    MAX_KEYS = 10_000
-
-    def __init__(self, clock=time.monotonic):
-        self._clock = clock
-        self._windows: dict[tuple[str, str], tuple[float, int]] = {}
+    def __init__(
+        self, limits_per_minute: dict[str, int], clock: Callable[[], float] = time.monotonic
+    ):
+        self.limits = limits_per_minute
+        self.clock = clock
+        self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
-    def hit(self, bucket: str, key: str, limit: int, period_s: int) -> int | None:
-        """Count one request. None if allowed, else seconds until the window resets."""
-        if limit <= 0:
-            return None
-        now = self._clock()
+    def check(self, bucket: str, client: str) -> None:
+        limit = self.limits[bucket]
+        now = self.clock()
         with self._lock:
-            if len(self._windows) > self.MAX_KEYS:
-                self._windows = {k: v for k, v in self._windows.items() if now - v[0] < period_s}
-            start, count = self._windows.get((bucket, key), (now, 0))
-            if now - start >= period_s:
-                start, count = now, 0
-            if count >= limit:
-                return max(1, math.ceil(period_s - (now - start)))
-            self._windows[(bucket, key)] = (start, count + 1)
-            return None
+            hits = self._hits[(bucket, client)]
+            while hits and now - hits[0] >= 60:
+                hits.popleft()
+            if len(hits) >= limit:
+                retry = max(1, int(60 - (now - hits[0])) + 1)
+                raise TooManyRequests(
+                    f"Too many requests. Try again in {retry} seconds.",
+                    details={"limit_per_minute": limit, "retry_after_seconds": retry},
+                    headers={"Retry-After": str(retry)},
+                )
+            hits.append(now)
+
+
+def limit(bucket: str):
+    """FastAPI dependency factory: ``Depends(limit("predict"))``."""
+
+    def dependency(request: Request) -> None:
+        client = request.client.host if request.client else "unknown"
+        request.app.state.ctx.limiter.check(bucket, client)
+
+    return dependency

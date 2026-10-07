@@ -1,137 +1,124 @@
-"""Current and forecast weather for live inference (Part 07 §2, decided in ADR 0006).
+"""Where live inference gets its conditions (Part 07 §2 decision).
 
-The backend calls the same Open-Meteo forecast adapter Part 02 built, through Part
-03's ``build_features``, and stores what it fetched in ``weather_snapshots``. A stored
-forecast younger than WEATHER_CACHE_MINUTES is reused, so the dashboard polling
-every region does not refetch on every request, and the cache lives in the database
-rather than in the process (Part 07 §7: the service stays stateless).
-
-Historical training data never comes through here; that stays Part 02's batch job.
+Decision: the backend **reads conditions the pipeline already ingested** rather than
+calling Open-Meteo/NASA POWER itself. One code path fetches and unit-normalises weather
+(Part 02/03), the API stays fast and offline-testable, and an outage shows up as stale
+data instead of a failed request. The file is `heatwave-prepare sample`'s output.
 """
 
-from datetime import date, datetime, timedelta
+import math
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Protocol
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from heatwave_api.db.repository import FEATURE_FIELDS, Repository
-from heatwave_api.errors import UpstreamBadResponse, UpstreamUnavailable
-from heatwave_api.reference import MAX_FORECAST_DAYS
-from heatwave_ml.features import SeasonalNormals, build_features
-from heatwave_ml.ingestion.adapters.open_meteo import OpenMeteoForecastAdapter
-from heatwave_ml.ingestion.http import (
-    HttpClient,
-    RetryPolicy,
-    SourceRequestError,
-    SourceUnavailable,
-)
-from heatwave_ml.ingestion.regions import Region
+from heatwave_api.errors import UpstreamUnavailable
 
-# The adapter requests daily values in this time zone, so "today" is India's today.
-LOCAL_TZ = ZoneInfo("Asia/Kolkata")
+MAX_LEAD_DAYS = 3
 
 
-class ForecastProvider(Protocol):
-    name: str
+@dataclass(frozen=True)
+class WeatherReading:
+    """Raw conditions for one region-day, in canonical units (°C, %, m/s at 2 m, MJ/m², mm)."""
 
-    def forecast(self, region: Region, today: date, days: int) -> pd.DataFrame:
-        """Today plus ``days`` days for one region: canonical raw columns, plus
-        lead_days, issued_at and wind_height_m. Raises UpstreamUnavailable or
-        UpstreamBadResponse."""
+    region_id: str
+    date: date
+    lead_days: int
+    issued_at: datetime
+    tmax_c: float | None
+    rh_pct: float | None
+    wind_ms: float | None
+    solar_mj_m2: float | None
+    precip_mm: float | None
+    wind_height_m: float = 2.0
+    source: str = "pipeline_forecast"
+
+    def age_hours(self, now: datetime | None = None) -> float:
+        return ((now or datetime.now(UTC)) - self.issued_at).total_seconds() / 3600
+
+
+class WeatherSource(Protocol):
+    def reading(self, region_id: str, lead_days: int = 0) -> WeatherReading: ...
+
+    def forecast(self, region_id: str) -> list[WeatherReading]: ...
+
+    def current(self) -> list[WeatherReading]:
+        """Today's reading for every region that has one."""
         ...
 
 
-class OpenMeteoProvider:
-    name = "open_meteo_forecast"
+def _number(value) -> float | None:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return float(value)
 
-    def __init__(self, url: str, timeout_seconds: float, max_attempts: int):
-        policy = RetryPolicy(
-            max_attempts=max_attempts, backoff_base_seconds=0.5, backoff_max_seconds=2
-        )
-        self.adapter = OpenMeteoForecastAdapter(HttpClient(policy, timeout_seconds), url)
 
-    def forecast(self, region: Region, today: date, days: int) -> pd.DataFrame:
-        chunk = OpenMeteoForecastAdapter.forecast_chunks([region], today, days)[0]
+class PipelineWeatherSource:
+    """Reads the pipeline's forecast-features CSV, re-reading it when the file changes."""
+
+    REQUIRED = ("region_id", "date", "lead_days", "issued_at", "tmax_c")
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._mtime: float | None = None
+        self._readings: dict[tuple[str, int], WeatherReading] = {}
+
+    def _load(self) -> dict[tuple[str, int], WeatherReading]:
         try:
-            result = self.adapter.fetch(chunk)
-        except SourceUnavailable as exc:
+            mtime = self.path.stat().st_mtime
+        except OSError as exc:
             raise UpstreamUnavailable(
-                "The weather forecast service is not reachable right now. Try again shortly.",
-                details={"source": self.name},
+                "Current weather data is not available. The data pipeline has not produced it yet."
             ) from exc
-        except SourceRequestError as exc:
-            raise UpstreamBadResponse(
-                "The weather forecast service returned an error.", details={"source": self.name}
-            ) from exc
-        return result.frame
-
-
-class WeatherService:
-    def __init__(
-        self,
-        provider: ForecastProvider,
-        normals: SeasonalNormals,
-        cache_minutes: int,
-        clock=lambda: datetime.now(LOCAL_TZ),
-    ):
-        self.provider = provider
-        self.normals = normals
-        self.cache = timedelta(minutes=cache_minutes)
-        self.clock = clock
-
-    def now(self) -> datetime:
-        return self.clock()
-
-    def today(self) -> date:
-        return self.now().astimezone(LOCAL_TZ).date()
-
-    def forecast(self, repo: Repository, region: Region) -> list[dict]:
-        """Today's forecast for ``region`` (lead 0..3) as stored snapshot rows, from
-        the cache if fresh, else fetched and stored now."""
-        now = self.now()
-        today = self.today()
-        if self.cache:
-            since = (now - self.cache).astimezone(ZoneInfo("UTC")).isoformat(timespec="seconds")
-            cached = repo.latest_forecast(region.id, today.isoformat(), since)
-            if cached and max(r["lead_days"] for r in cached) >= MAX_FORECAST_DAYS:
-                return cached
-
-        frame = self.provider.forecast(region, today, MAX_FORECAST_DAYS)
-        if frame.empty:
-            raise UpstreamBadResponse(
-                f"The weather forecast service returned no data for {region.name}.",
-                details={"source": self.provider.name},
-            )
+        if mtime == self._mtime:
+            return self._readings
         try:
-            features = build_features(frame, self.normals)
-        except (KeyError, ValueError) as exc:
-            raise UpstreamBadResponse(
-                "The weather forecast could not be used.", details={"source": self.provider.name}
+            frame = pd.read_csv(self.path)
+            missing = [c for c in self.REQUIRED if c not in frame.columns]
+            if missing:
+                raise ValueError(f"missing columns {missing}")
+            readings = {}
+            for row in frame.to_dict("records"):
+                lead = int(row["lead_days"])
+                readings[(row["region_id"], lead)] = WeatherReading(
+                    region_id=row["region_id"],
+                    date=date.fromisoformat(str(row["date"])[:10]),
+                    lead_days=lead,
+                    issued_at=datetime.fromisoformat(str(row["issued_at"])).astimezone(UTC),
+                    tmax_c=_number(row["tmax_c"]),
+                    rh_pct=_number(row.get("rh_pct")),
+                    wind_ms=_number(row.get("wind_ms")),
+                    solar_mj_m2=_number(row.get("solar_mj_m2")),
+                    precip_mm=_number(row.get("precip_mm")),
+                    wind_height_m=_number(row.get("wind_height_m")) or 2.0,
+                )
+        except (ValueError, KeyError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+            raise UpstreamUnavailable(
+                "Current weather data could not be read. The pipeline output is malformed."
             ) from exc
-        fetched_at = now.astimezone(ZoneInfo("UTC")).isoformat(timespec="seconds")
-        rows = []
-        for _, f in features.iterrows():
-            rows.append(
-                {
-                    "region_id": region.id,
-                    "date": f["date"].date().isoformat(),
-                    "kind": "FORECAST",
-                    "lead_days": int(f["lead_days"]),
-                    "issued_at": _issued_local(f["issued_at"]),
-                    "source": self.provider.name,
-                    "fetched_at": fetched_at,
-                }
-                | {k: _num(f[k]) for k in FEATURE_FIELDS}
+        self._mtime, self._readings = mtime, readings
+        return readings
+
+    def reading(self, region_id: str, lead_days: int = 0) -> WeatherReading:
+        found = self._load().get((region_id, lead_days))
+        if found is None:
+            raise UpstreamUnavailable(
+                f"No weather data for region '{region_id}' at lead {lead_days} day(s)."
             )
-        ids = repo.insert_snapshots(rows)
-        return [r | {"id": i} for r, i in zip(rows, ids, strict=True)]
+        return found
 
+    def forecast(self, region_id: str) -> list[WeatherReading]:
+        rows = sorted(
+            (r for (rid, _), r in self._load().items() if rid == region_id),
+            key=lambda r: r.lead_days,
+        )
+        if not rows:
+            raise UpstreamUnavailable(f"No weather data for region '{region_id}'.")
+        return rows
 
-def _num(value) -> float | None:
-    return None if pd.isna(value) else round(float(value), 2)
-
-
-def _issued_local(value) -> str:
-    """issued_at in local time, so its date part is the local issue date the cache keys on."""
-    return pd.Timestamp(value).tz_convert(LOCAL_TZ).isoformat(timespec="seconds")
+    def current(self) -> list[WeatherReading]:
+        return sorted(
+            (r for (_, lead), r in self._load().items() if lead == 0), key=lambda r: r.region_id
+        )

@@ -1,109 +1,176 @@
-"""Everything the service loads once at startup, in one container on ``app.state``.
-
-``build_services`` is the production assembly. ``assemble_services`` takes the three
-outside-world pieces (model, forecast provider, notifier) as arguments, so tests run
-the real startup (migrations, region sync, model metadata) around fakes.
-"""
+"""Application services behind the routers: prediction and analytics."""
 
 import logging
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import get_args
+from collections import Counter, defaultdict
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
-from heatwave_api.actions import ActionPlan
-from heatwave_api.config import Settings
-from heatwave_api.db import Database, MigrationError
-from heatwave_api.db.repository import Repository
-from heatwave_api.inference import ModelService, Predictor, StartupError
-from heatwave_api.notifications import MockNotifier, Notifier
-from heatwave_api.ratelimit import RateLimiter
-from heatwave_api.reference import ReferenceData, region_dict
-from heatwave_api.schemas import Channel
-from heatwave_api.security import TokenService
-from heatwave_api.weather import ForecastProvider, OpenMeteoProvider, WeatherService
+from heatwave_api.catalog import Catalog
+from heatwave_api.errors import UnknownRegion
+from heatwave_api.predictor import Predictor
+from heatwave_api.repositories import Repository
+from heatwave_api.schemas import (
+    AnalyticsOut,
+    ForecastWindow,
+    ModelPerformance,
+    MonthlyCount,
+    PredictionOut,
+    RegionOut,
+    TrendPoint,
+    WeatherOut,
+    WeatherProvenance,
+)
+from heatwave_api.weather import WeatherReading, WeatherSource
 
-log = logging.getLogger(__name__)
-
-
-@dataclass
-class Services:
-    settings: Settings
-    reference: ReferenceData
-    actions: ActionPlan
-    db: Database
-    model: Predictor
-    weather: WeatherService
-    notifier: Notifier
-    tokens: TokenService
-    limiter: RateLimiter = field(default_factory=RateLimiter)
-    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+log = logging.getLogger("heatwave_api.predict")
 
 
-def assemble_services(
-    settings: Settings,
-    *,
-    model: Predictor,
-    provider: ForecastProvider,
-    notifier: Notifier,
-    weather_clock=None,
-) -> Services:
-    try:
-        settings.check_deployable()
-        reference = ReferenceData.load(settings.monitored_regions_file, settings.risk_config_path)
-        actions = ActionPlan.load(settings.recommended_actions_file)
-        db = Database(settings.sqlite_path)
-        applied = db.migrate()
-    except (ValueError, OSError, KeyError, MigrationError) as exc:
-        raise StartupError(str(exc)) from exc
-    if applied:
-        log.info("database migrated", extra={"applied": applied, "database": str(db.path)})
-    with db.connect() as conn:
-        repo = Repository(conn)
-        repo.sync_regions([region_dict(r) for r in reference.regions.values()])
-        reference.known_regions = {r["id"]: r for r in repo.all_regions()}
-        repo.activate_model(model.metadata() | {"deployed_at": _now()})
-    weather_kwargs = {"clock": weather_clock} if weather_clock else {}
-    weather = WeatherService(
-        provider, model.normals, settings.weather_cache_minutes, **weather_kwargs
-    )
-    return Services(
-        settings=settings,
-        reference=reference,
-        actions=actions,
-        db=db,
-        model=model,
-        weather=weather,
-        notifier=notifier,
-        tokens=TokenService(
-            settings.auth_secret_key.get_secret_value(), settings.auth_token_ttl_minutes
-        ),
+def region_out(catalog: Catalog, region_id: str) -> RegionOut:
+    region = catalog.regions.get(region_id)
+    if region is None:
+        raise UnknownRegion(f"Unknown region '{region_id}'.")
+    return RegionOut(**region.__dict__)
+
+
+def provenance(reading: WeatherReading, stale_after_hours: int, now: datetime) -> WeatherProvenance:
+    age = reading.age_hours(now)
+    return WeatherProvenance(
+        source=reading.source,
+        issued_at=reading.issued_at,
+        age_hours=round(age, 1),
+        stale=age > stale_after_hours,
     )
 
 
-def build_notifier(settings: Settings) -> Notifier:
-    if settings.notifications_mode == "live":
-        raise StartupError(
-            "NOTIFICATIONS_MODE=live needs the Part 09 provider integrations, which do not "
-            "exist yet. Use NOTIFICATIONS_MODE=mock."
+class PredictionService:
+    def __init__(
+        self,
+        predictor: Predictor,
+        weather: WeatherSource,
+        repo: Repository,
+        catalog: Catalog,
+        stale_after_hours: int,
+    ):
+        self.predictor, self.weather, self.repo = predictor, weather, repo
+        self.catalog, self.stale_after_hours = catalog, stale_after_hours
+
+    def predict(self, region_id: str, lead_days: int) -> PredictionOut:
+        region = region_out(self.catalog, region_id)  # 404 before touching weather or model
+        reading = self.weather.reading(region_id, lead_days)
+        result = self.predictor.predict(reading)
+        body = result.prediction
+        now = datetime.now(UTC)
+        prediction = PredictionOut(
+            prediction_id=f"pred_{uuid4().hex[:16]}",
+            created_at=now,
+            region=region,
+            forecast_window=ForecastWindow(
+                valid_date=reading.date, lead_days=lead_days, issued_at=reading.issued_at
+            ),
+            risk_class=body["risk_class"],
+            confidence=body["confidence"],
+            probabilities=body["probabilities"],
+            inputs=result.inputs,
+            explanation=body["explanation"],
+            recommended_actions=self.catalog.recommended_actions(
+                body["risk_class"], body["explanation"]["factors"]
+            ),
+            actions_version=self.catalog.actions_version,
+            weather=provenance(reading, self.stale_after_hours, now),
         )
-    unknown = set(settings.notifications_mock_fail_channels) - set(get_args(Channel))
-    if unknown:
-        raise StartupError(f"NOTIFICATIONS_MOCK_FAIL_CHANNELS has unknown channel(s) {unknown}")
-    return MockNotifier(settings.notifications_mock_fail_channels)
+        self.repo.add_prediction(prediction)
+        return prediction
 
 
-def build_services(settings: Settings) -> Services:
-    """The production startup. Raises StartupError instead of starting half-working."""
-    reference = ReferenceData.load(settings.monitored_regions_file, settings.risk_config_path)
-    notifier = build_notifier(settings)
-    model = ModelService.load(settings, list(reference.regions))
-    provider = OpenMeteoProvider(
-        settings.open_meteo_forecast_url,
-        settings.weather_http_timeout_seconds,
-        settings.weather_max_attempts,
+def weather_out(
+    reading: WeatherReading, catalog: Catalog, predictor: Predictor, stale_after_hours: int
+) -> WeatherOut:
+    """Conditions plus the two derived numbers the dashboard shows (normal and deviation),
+    computed by the shared feature path, never re-derived here."""
+    inputs = predictor.inputs(reading)
+    return WeatherOut(
+        region=region_out(catalog, reading.region_id),
+        date=reading.date,
+        lead_days=reading.lead_days,
+        tmax_c=reading.tmax_c,
+        normal_tmax_c=inputs["normal_tmax_c"],
+        temp_deviation_c=inputs["temp_deviation_c"],
+        rh_pct=reading.rh_pct,
+        wind_ms=reading.wind_ms,
+        solar_mj_m2=reading.solar_mj_m2,
+        precip_mm=reading.precip_mm,
+        provenance=provenance(reading, stale_after_hours, datetime.now(UTC)),
     )
-    return assemble_services(settings, model=model, provider=provider, notifier=notifier)
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
+def model_performance(predictor: Predictor) -> ModelPerformance:
+    """Static per deployed model version: read from Part 05's promotion pointer, once."""
+    info, ev = predictor.info, predictor.info.evaluation
+    metrics = ev["test_metrics"]
+    return ModelPerformance(
+        model_version=info.model_version,
+        model_family=info.model_family,
+        explainer_id=info.explainer_id,
+        labeling_rule_version=info.labeling_rule_version,
+        evaluated_on=f"held-out test split ({ev['evaluation_id']}, policy {ev['policy_version']})",
+        test_rows=ev["test_rows"],
+        accuracy=metrics["accuracy"],
+        precision_macro=metrics["precision_macro"],
+        recall_macro=metrics["recall_macro"],
+        f1_macro=metrics["f1_macro"],
+        per_class={
+            name: {k: v for k, v in scores.items() if k != "support"}
+            for name, scores in metrics["per_class"].items()
+        },
+        mean_confidence=ev["calibration"]["mean_confidence"],
+        calibration_ece=ev["calibration"]["top_label_ece"],
+    )
+
+
+def analytics(
+    repo: Repository, predictor: Predictor, catalog: Catalog, days: int, region_id: str | None
+) -> AnalyticsOut:
+    if region_id is not None:
+        region_out(catalog, region_id)
+    since = datetime.now(UTC) - timedelta(days=days)
+    stored = repo.predictions_since(since, region_id)
+
+    # One point per forecast date: the newest prediction for each region-date.
+    latest: dict[tuple[str, str], PredictionOut] = {}
+    for p in stored:
+        latest[(p.region.id, p.forecast_window.valid_date.isoformat())] = p
+    unique = list(latest.values())
+
+    by_day: dict[str, list[float]] = defaultdict(list)
+    monthly: dict[str, Counter] = defaultdict(Counter)
+    distribution: Counter = Counter({c: 0 for c in catalog.risk_classes})
+    for p in unique:
+        distribution[p.risk_class] += 1
+        month = p.forecast_window.valid_date.strftime("%Y-%m")
+        monthly[month][p.risk_class] += 1
+        tmax = p.inputs.get("tmax_c")
+        if tmax is not None:
+            by_day[p.forecast_window.valid_date.isoformat()].append(tmax)
+
+    return AnalyticsOut(
+        period_days=days,
+        region_id=region_id,
+        data_source="stored_predictions",
+        temperature_trend=[
+            TrendPoint(
+                date=day,
+                avg_tmax_c=round(sum(v) / len(v), 2),
+                max_tmax_c=max(v),
+                predictions=len(v),
+            )
+            for day, v in sorted(by_day.items())
+        ],
+        events_per_month=[
+            MonthlyCount(month=m, heatwave_events=c["HEATWAVE"], severe_events=c["SEVERE_HEATWAVE"])
+            for m, c in sorted(monthly.items())
+        ],
+        risk_distribution=dict(distribution),
+        predictions_in_period=len(unique),
+        # Read from model_metadata (Part 08 §2.7); the loaded model is the fallback.
+        model_performance=repo.active_model() or model_performance(predictor),
+    )

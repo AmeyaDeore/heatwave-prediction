@@ -1,0 +1,37 @@
+# Message templates, one per delivery mechanism (Part 09 §4). Edit wording here; the
+# dispatch code never contains message text. A localization pass adds sibling files.
+#
+# Placeholders ($name or ${name}; a literal dollar is $$):
+#   severity_label  from severity_labels below      region_name, district, state
+#   message         the official's advisory text    alert_id    issued_at (IST, readable)
+#
+# SMS stays GSM-7 (plain ASCII here: no em dashes or smart quotes, which would force
+# UCS-2 and cut a segment to 70 characters). When the rendered SMS is longer than
+# max_chars, only $message is shortened (at a word boundary, ending "..."); the
+# severity, region and reference always survive.
+version: TPL-2026-10-07
+
+severity_labels:
+  HEATWAVE: HEATWAVE ALERT
+  SEVERE_HEATWAVE: SEVERE HEATWAVE ALERT
+
+email:
+  subject: "${severity_label} - ${region_name} (${alert_id})"
+  body: |
+    ${severity_label} - ${region_name}, ${district}, ${state}
+
+    ${message}
+
+    Issued: ${issued_at}
+    Reference: ${alert_id}
+
+    This warning was issued by the district disaster management authority through the
+    Heatwave Early Warning System. Forward it within your organisation as required.
+
+sms:
+  max_chars: 160
+  body: "${severity_label} - ${region_name}: ${message} Ref ${alert_id}"
+
+in_app:
+  title: "${severity_label} - ${region_name}"
+  body: "${message}"

@@ -76,13 +76,17 @@ Design a relational schema in SQLite (per the architecture diagram) that support
 
 ## 9. Acceptance criteria / "done"
 
-- [ ] Full schema documented (tables, fields, types, constraints, relationships) matching Sections 2–3.
-- [ ] Indexes defined per Section 4.
-- [ ] Migration tooling/process chosen and a first migration applied to create the schema.
-- [ ] Foreign key enforcement confirmed enabled.
-- [ ] Schema cross-checked field-by-field against the UI mockups in Parts 11–14.
-- [ ] Backup approach documented.
+- [x] Full schema documented (tables, fields, types, constraints, relationships) matching Sections 2–3. *(`docs/database/README.md` §1–2: ER diagram and every column; the SQL is `backend/src/heatwave_api/db/migrations/0001_initial_schema.sql`. SHAP factors are the child table `prediction_factors`.)*
+- [x] Indexes defined per Section 4. *((region, time) on predictions and weather_snapshots; status and region separately on alerts; per-alert lookup via the deliveries PK. `docs/database/README.md` §3; the latest-prediction query plan is asserted in a test.)*
+- [x] Migration tooling/process chosen and a first migration applied to create the schema. *(Numbered SQL files + a checksummed runner, `uv run heatwave-db migrate`. Auto-applied in local/test; staging/production refuse to start while migrations are pending. `0001` applied to `data/local/heatwave.db`. §6.)*
+- [x] Foreign key enforcement confirmed enabled. *(Enabled per connection and verified at connect time; a violation is tested to raise.)*
+- [x] Schema cross-checked field-by-field against the UI mockups in Parts 11–14. *(`docs/database/README.md` §4. One open item belongs to Part 13: the Response Coordination panel.)*
+- [x] Backup approach documented. *(`heatwave-db backup`: online-backup API, integrity check, `--keep` retention; restore steps and the backup-before-migrate rule in §5.)*
 
 ## 10. Handoff note template
 
 > Schema migrations at: <path>. Entity-relationship summary: <link>. Database file location (per environment): <config key>. Part 07 can now implement data-access logic against this confirmed schema.
+
+**Also produced:** `SqliteRepository` / `SqliteUserStore` wired into the API (persistence is no longer in memory), append-only and issued-alert triggers, `UNIQUE (created_by, client_request_id)`, `model_metadata` read by analytics, `heatwave-db` CLI (`migrate`, `status`, `seed`, `backup`, `import-weather`), ADR 0007 and log 08.
+
+**Filled-in handoff:** Schema migrations at `backend/src/heatwave_api/db/migrations/`. Entity-relationship summary: [`docs/database/README.md`](../docs/database/README.md) §1. Database file location (per environment): `DATABASE_URL` (local `sqlite:///data/local/heatwave.db`, tests `sqlite:///:memory:`, deployed: a persistent volume, Part 18). Part 07's data access already runs against this schema.

@@ -1,55 +1,52 @@
-"""The error taxonomy (Part 07 §6). Every failure the API reports is one of these.
+"""The error taxonomy (Part 07 §6): every failure is one of three kinds.
 
-Four categories, told apart in both the response body and the logs:
+| kind     | meaning                                    | HTTP        |
+|----------|--------------------------------------------|-------------|
+| client   | the caller sent something wrong            | 4xx         |
+| upstream | a data source we depend on is unusable     | 502 / 503   |
+| internal | our own model, explainer or code failed    | 500 / 503   |
 
-    client    the request is wrong: bad input, unknown id, conflict, rate limit    4xx
-    auth      missing/invalid/expired token, bad credentials, not allowed          401/403
-    upstream  the weather source failed; not our bug, retrying later may help      502/503
-    internal  our model, explainer, database or code failed                        500/503
-
-Messages are written for the caller and never carry a stack trace, a SQL statement
-or a file path. The detail goes to the log, under the same request id.
+Messages are written for the caller and never carry stack traces or paths. The full
+detail goes to the log, tagged with the same ``request_id`` the response returns.
 """
 
-from typing import Any, Literal
+from typing import Literal
 
-Category = Literal["client", "auth", "upstream", "internal"]
+ErrorKind = Literal["client", "upstream", "internal"]
 
 
 class ApiError(Exception):
     status_code = 500
     code = "INTERNAL_ERROR"
-    category: Category = "internal"
+    kind: ErrorKind = "internal"
 
     def __init__(
         self,
         message: str,
         *,
-        details: Any = None,
+        details: dict | list | None = None,
         headers: dict[str, str] | None = None,
-        code: str | None = None,
     ):
         super().__init__(message)
         self.message = message
         self.details = details
         self.headers = headers or {}
-        if code:
-            self.code = code
-
-
-# -- client -----------------------------------------------------------------------------
 
 
 class BadRequest(ApiError):
-    status_code, code, category = 400, "BAD_REQUEST", "client"
+    status_code, code, kind = 400, "BAD_REQUEST", "client"
 
 
 class ValidationFailed(ApiError):
-    status_code, code, category = 422, "VALIDATION_ERROR", "client"
+    status_code, code, kind = 422, "VALIDATION_ERROR", "client"
+
+
+class Unauthorized(ApiError):
+    status_code, code, kind = 401, "UNAUTHORIZED", "client"
 
 
 class NotFound(ApiError):
-    status_code, code, category = 404, "NOT_FOUND", "client"
+    status_code, code, kind = 404, "NOT_FOUND", "client"
 
 
 class UnknownRegion(NotFound):
@@ -57,55 +54,38 @@ class UnknownRegion(NotFound):
 
 
 class Conflict(ApiError):
-    status_code, code, category = 409, "CONFLICT", "client"
+    status_code, code, kind = 409, "CONFLICT", "client"
 
 
-class RateLimited(ApiError):
-    status_code, code, category = 429, "RATE_LIMITED", "client"
-
-
-# -- auth -------------------------------------------------------------------------------
-
-
-class Unauthenticated(ApiError):
-    status_code, code, category = 401, "UNAUTHENTICATED", "auth"
-
-    def __init__(self, message: str = "Sign in to do this.", **kwargs):
-        kwargs.setdefault("headers", {"WWW-Authenticate": "Bearer"})
-        super().__init__(message, **kwargs)
-
-
-class Forbidden(ApiError):
-    status_code, code, category = 403, "FORBIDDEN", "auth"
-
-
-# -- upstream ---------------------------------------------------------------------------
+class TooManyRequests(ApiError):
+    status_code, code, kind = 429, "RATE_LIMITED", "client"
 
 
 class UpstreamUnavailable(ApiError):
-    """The weather source could not be reached (after retries). Try again later."""
+    """The weather data the pipeline ingests is missing, unreadable or lacks the request."""
 
-    status_code, code, category = 503, "WEATHER_SOURCE_UNAVAILABLE", "upstream"
-
-
-class UpstreamBadResponse(ApiError):
-    """The weather source answered, but with an error or data we cannot use."""
-
-    status_code, code, category = 502, "WEATHER_SOURCE_ERROR", "upstream"
+    status_code, code, kind = 503, "WEATHER_DATA_UNAVAILABLE", "upstream"
 
 
-# -- internal ---------------------------------------------------------------------------
+class ModelUnavailable(ApiError):
+    status_code, code, kind = 503, "MODEL_UNAVAILABLE", "internal"
 
 
-class InternalError(ApiError):
-    status_code, code, category = 500, "INTERNAL_ERROR", "internal"
+class PredictionFailed(ApiError):
+    status_code, code, kind = 500, "PREDICTION_FAILED", "internal"
 
 
-class PredictionFailed(InternalError):
-    code = "PREDICTION_FAILED"
+class HttpFailure(ApiError):
+    """An error whose status and code are decided at the point of use (framework errors)."""
 
-
-class ServiceNotReady(ApiError):
-    """The model/explainer or database is not loaded. Startup normally prevents this."""
-
-    status_code, code, category = 503, "SERVICE_NOT_READY", "internal"
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        kind: ErrorKind = "client",
+        details: dict | list | None = None,
+    ):
+        super().__init__(message, details=details)
+        self.status_code, self.code, self.kind = status_code, code, kind

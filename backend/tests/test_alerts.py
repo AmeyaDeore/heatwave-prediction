@@ -1,211 +1,204 @@
-"""Alerts: auth gate, draft-to-issued flow, idempotency, per-channel delivery status."""
+import re
+from uuid import uuid4
 
-import pytest
-from api_support import PASSWORD, new_alert
+from fakes import FakePredictor  # noqa: F401  (documents which double the fixtures use)
 
-from heatwave_api.notifications import DeliveryResult, MockNotifier
+from heatwave_api.notifier import DeliveryResult
 
-ALERTS = "/api/v1/alerts"
-
-
-class RecordingNotifier(MockNotifier):
-    def __init__(self, fail=(), crash=()):
-        super().__init__(list(fail))
-        self.crash = set(crash)
-        self.sent: list[tuple[str, str]] = []
-
-    def send(self, alert, channel) -> DeliveryResult:
-        self.sent.append((alert["code"], channel))
-        if channel in self.crash:
-            raise ConnectionError("provider socket closed")
-        return super().send(alert, channel)
+MESSAGE = "Heatwave conditions expected. Stay indoors between noon and 4 PM."
 
 
-@pytest.fixture
-def notifier(client):
-    client.app.state.services.notifier = RecordingNotifier()
-    return client.app.state.services.notifier
+def body(**overrides):
+    return {
+        "client_request_id": str(uuid4()),
+        "region_id": "mumbai",
+        "severity": "HEATWAVE",
+        "message": MESSAGE,
+        "channels": ["public_mobile", "hospitals"],
+        **overrides,
+    }
 
 
-def statuses(alert: dict) -> dict:
-    return {c["channel"]: c["status"] for c in alert["channels"]}
+def create(client, auth, **overrides):
+    return client.post("/api/v1/alerts", json=body(**overrides), headers=auth)
 
 
-def test_writes_need_a_signed_in_user(client):
-    response = client.post(ALERTS, json=new_alert())
-    assert response.status_code == 401
-    assert response.json()["error"]["category"] == "auth"
-    assert response.headers["WWW-Authenticate"] == "Bearer"
-    garbage = {"Authorization": "Bearer not.a.token"}
-    assert client.post(ALERTS, json=new_alert(), headers=garbage).status_code == 401
-    assert client.patch(f"{ALERTS}/HW-2026-0001", json={"status": "ISSUED"}).status_code == 401
-    assert client.get(ALERTS).json()["data"]["total"] == 0
+def test_writes_require_a_token(client):
+    assert client.post("/api/v1/alerts", json=body()).status_code == 401
+    assert client.patch("/api/v1/alerts/HW-2026-0001", json={"status": "READY"}).status_code == 401
+    r = client.post("/api/v1/alerts", json=body(), headers={"Authorization": "Bearer nonsense"})
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "UNAUTHORIZED"
 
 
-def test_save_as_draft_then_issue_on_the_same_record(notifier, client, auth):
-    response = client.post(ALERTS, json=new_alert(), headers=auth)
-    assert response.status_code == 201, response.text
-    draft = response.json()["data"]
-    assert draft["alert_id"] == "HW-2026-0001"
-    assert draft["status"] == "DRAFT" and draft["issued_at"] is None
-    assert set(statuses(draft).values()) == {"READY"}
-    assert draft["created_by"] == {"username": "officer", "display_name": "Duty Officer"}
-    assert response.headers["Location"] == "/api/v1/alerts/HW-2026-0001"
-    assert notifier.sent == []  # a draft never notifies anyone
+def test_reads_are_open(client):
+    assert client.get("/api/v1/alerts").status_code == 200
 
-    edited = client.patch(
-        f"{ALERTS}/HW-2026-0001",
-        json={"message": "Updated advisory text.", "channels": ["GOVERNMENT_PORTAL"]},
-        headers=auth,
-    ).json()["data"]
-    assert edited["message"] == "Updated advisory text."
-    assert statuses(edited) == {"GOVERNMENT_PORTAL": "READY"}
+
+def test_default_is_a_draft_with_ready_channels_and_nothing_sent(client, auth, notifier):
+    r = create(client, auth)
+    assert r.status_code == 201
+    alert = r.json()["data"]
+    assert alert["status"] == "DRAFT"
+    assert alert["issued_at"] is None
+    assert {c["status"] for c in alert["channels"]} == {"READY"}
     assert notifier.sent == []
 
-    ready = client.patch(f"{ALERTS}/HW-2026-0001", json={"status": "READY"}, headers=auth)
-    assert ready.json()["data"]["status"] == "READY" and notifier.sent == []
 
-    issued = client.patch(f"{ALERTS}/HW-2026-0001", json={"status": "ISSUED"}, headers=auth)
-    assert issued.status_code == 200
-    alert = issued.json()["data"]
-    assert alert["alert_id"] == "HW-2026-0001"  # same record, status changed
-    assert alert["status"] == "ISSUED" and alert["issued_at"]
-    assert alert["issued_by"]["username"] == "officer"
-    assert statuses(alert) == {"GOVERNMENT_PORTAL": "NOTIFIED"}
-    assert alert["channels"][0]["attempts"] == 1
-    assert notifier.sent == [("HW-2026-0001", "GOVERNMENT_PORTAL")]
-    assert issued.json()["meta"]["warnings"] == []
+def test_alert_id_is_code_year_sequence(client, auth):
+    first = create(client, auth).json()["data"]["alert_id"]
+    second = create(client, auth).json()["data"]["alert_id"]
+    assert re.fullmatch(r"HW-\d{4}-0001", first)
+    assert second.endswith("-0002")
 
 
-def test_an_issued_alert_is_locked(client, auth):
-    client.post(ALERTS, json=new_alert(status="ISSUED"), headers=auth)
-    for change in ({"message": "edit"}, {"status": "DRAFT"}, {"status": "ISSUED"}):
-        response = client.patch(f"{ALERTS}/HW-2026-0001", json=change, headers=auth)
-        assert response.status_code == 409
-        assert response.json()["error"]["code"] == "ALERT_ALREADY_ISSUED"
-
-
-def test_a_failed_channel_is_visible_and_does_not_block_the_others(client, auth):
-    client.app.state.services.notifier = RecordingNotifier(
-        fail={"EMERGENCY_SERVICES"}, crash={"GOVERNMENT_PORTAL"}
-    )
-    response = client.post(ALERTS, json=new_alert(status="ISSUED"), headers=auth)
-    assert response.status_code == 201
-    body = response.json()
-    alert = body["data"]
-    assert statuses(alert) == {
-        "PUBLIC_MOBILE_ALERT": "NOTIFIED",
-        "GOVERNMENT_PORTAL": "FAILED",
-        "EMERGENCY_SERVICES": "FAILED",
+def test_issue_immediately_notifies_every_channel(client, auth, notifier):
+    alert = create(client, auth, status="ISSUED").json()["data"]
+    assert alert["status"] == "ISSUED"
+    assert alert["issued_at"] is not None
+    assert {c["status"] for c in alert["channels"]} == {"NOTIFIED"}
+    assert alert["delivery_summary"] == {
+        "total": 2,
+        "notified": 2,
+        "failed": 0,
+        "pending": 0,
+        "all_delivered": True,
     }
-    assert alert["delivery_summary"] == {"READY": 0, "PENDING": 0, "NOTIFIED": 1, "FAILED": 2}
-    errors = {c["channel"]: c["last_error"] for c in alert["channels"]}
-    assert errors["GOVERNMENT_PORTAL"] == "Delivery error (ConnectionError)"
-    assert "configured to fail" in errors["EMERGENCY_SERVICES"]
-    assert len(body["meta"]["warnings"]) == 2
-    assert any("Emergency Services" in w for w in body["meta"]["warnings"])
-    # ... and the record still says so later.
-    stored = client.get(f"{ALERTS}/HW-2026-0001").json()["data"]
-    assert statuses(stored) == statuses(alert)
+    assert sorted(ch for _, ch in notifier.sent) == ["hospitals", "public_mobile"]
 
 
-def test_a_retried_submission_does_not_create_a_second_alert(notifier, client, auth):
-    body = new_alert(status="ISSUED")
-    first = client.post(ALERTS, json=body, headers=auth)
-    again = client.post(ALERTS, json=body, headers=auth)
-    assert (first.status_code, again.status_code) == (201, 200)
-    assert again.json()["meta"]["idempotent_replay"] is True
-    assert first.json()["meta"]["idempotent_replay"] is False
+def test_draft_to_ready_to_issued_is_one_record(client, auth):
+    alert_id = create(client, auth).json()["data"]["alert_id"]
+    ready = client.patch(f"/api/v1/alerts/{alert_id}", json={"status": "READY"}, headers=auth)
+    assert ready.json()["data"]["status"] == "READY"
+    issued = client.patch(f"/api/v1/alerts/{alert_id}", json={"status": "ISSUED"}, headers=auth)
+    data = issued.json()["data"]
+    assert data["alert_id"] == alert_id
+    assert data["status"] == "ISSUED"
+    assert client.get("/api/v1/alerts").json()["data"]["total"] == 1
+
+
+def test_a_draft_can_be_edited_before_issue(client, auth):
+    alert_id = create(client, auth).json()["data"]["alert_id"]
+    edited = client.patch(
+        f"/api/v1/alerts/{alert_id}",
+        json={"severity": "SEVERE_HEATWAVE", "channels": ["display_boards"]},
+        headers=auth,
+    ).json()["data"]
+    assert edited["severity"] == "SEVERE_HEATWAVE"
+    assert [c["channel"] for c in edited["channels"]] == ["display_boards"]
+
+
+def test_an_issued_alert_is_immutable(client, auth):
+    alert_id = create(client, auth, status="ISSUED").json()["data"]["alert_id"]
+    for change in ({"message": "A different message entirely."}, {"status": "DRAFT"}):
+        r = client.patch(f"/api/v1/alerts/{alert_id}", json=change, headers=auth)
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "CONFLICT"
+
+
+def test_one_failed_channel_is_reported_not_swallowed(client, auth, notifier):
+    notifier.failing["hospitals"] = DeliveryResult("FAILED", "gateway timeout")
+    r = create(client, auth, status="ISSUED")
+    assert r.status_code == 201  # the alert exists and is issued
+    alert = r.json()["data"]
+    by_channel = {c["channel"]: c for c in alert["channels"]}
+    assert by_channel["public_mobile"]["status"] == "NOTIFIED"
+    assert by_channel["hospitals"]["status"] == "FAILED"
+    assert by_channel["hospitals"]["detail"] == "gateway timeout"
+    assert alert["delivery_summary"]["failed"] == 1
+    assert alert["delivery_summary"]["all_delivered"] is False
+    stored = client.get(f"/api/v1/alerts/{alert['alert_id']}").json()["data"]
+    assert stored["delivery_summary"]["failed"] == 1
+
+
+def test_a_notifier_that_raises_marks_only_that_channel_failed(client, auth, notifier):
+    notifier.failing["public_mobile"] = RuntimeError("boom with internal detail")
+    alert = create(client, auth, status="ISSUED").json()["data"]
+    by_channel = {c["channel"]: c for c in alert["channels"]}
+    assert by_channel["public_mobile"]["status"] == "FAILED"
+    assert "boom" not in str(by_channel["public_mobile"]["detail"])
+    assert by_channel["hospitals"]["status"] == "NOTIFIED"
+
+
+def test_replaying_a_request_id_returns_the_same_alert(client, auth, notifier):
+    payload = body(status="ISSUED")
+    first = client.post("/api/v1/alerts", json=payload, headers=auth)
+    again = client.post("/api/v1/alerts", json=payload, headers=auth)
+    assert first.status_code == 201
+    assert again.status_code == 200
     assert again.json()["data"]["alert_id"] == first.json()["data"]["alert_id"]
-    assert len(notifier.sent) == 3  # dispatched once, not twice
-    assert client.get(ALERTS).json()["data"]["total"] == 1
-
-    reused = client.post(ALERTS, json=body | {"message": "different"}, headers=auth)
-    assert reused.status_code == 409
-    assert reused.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
-
-    fresh = client.post(ALERTS, json=new_alert(), headers=auth)
-    assert fresh.json()["data"]["alert_id"] == "HW-2026-0002"
+    assert again.json()["data"]["idempotent_replay"] is True
+    assert client.get("/api/v1/alerts").json()["data"]["total"] == 1
+    assert len(notifier.sent) == 2  # not notified a second time
 
 
-def test_alert_list_filters_and_pages(client, auth):
-    client.post(ALERTS, json=new_alert(region_id="kurla"), headers=auth)
-    client.post(ALERTS, json=new_alert(status="ISSUED"), headers=auth)
-    client.post(ALERTS, json=new_alert(status="READY"), headers=auth)
-    page = client.get(ALERTS).json()["data"]
-    assert page["total"] == 3
-    assert [a["alert_id"] for a in page["items"]] == [
-        "HW-2026-0003",
-        "HW-2026-0002",
-        "HW-2026-0001",
+def test_a_reused_request_id_with_different_content_is_a_conflict(client, auth):
+    payload = body()
+    client.post("/api/v1/alerts", json=payload, headers=auth)
+    r = client.post("/api/v1/alerts", json={**payload, "severity": "SEVERE_HEATWAVE"}, headers=auth)
+    assert r.status_code == 409
+
+
+def test_new_request_ids_create_separate_alerts(client, auth):
+    create(client, auth)
+    create(client, auth)
+    assert client.get("/api/v1/alerts").json()["data"]["total"] == 2
+
+
+def test_invalid_alerts_are_rejected(client, auth):
+    assert create(client, auth, severity="NORMAL").status_code == 422
+    assert create(client, auth, channels=[]).status_code == 422
+    assert create(client, auth, message="short").status_code == 422
+    assert create(client, auth, client_request_id="not-a-uuid").status_code == 422
+    unknown_channel = create(client, auth, channels=["carrier_pigeon"])
+    assert unknown_channel.status_code == 400
+    assert "public_mobile" in unknown_channel.json()["error"]["details"]["valid"]
+    assert create(client, auth, region_id="atlantis").status_code == 404
+    assert create(client, auth, prediction_id="pred_missing").status_code == 400
+
+
+def test_duplicate_channels_are_notified_once(client, auth, notifier):
+    create(client, auth, channels=["hospitals", "hospitals"], status="ISSUED")
+    assert [ch for _, ch in notifier.sent] == ["hospitals"]
+
+
+def test_alert_can_reference_the_prediction_that_justified_it(client, auth):
+    made = client.post("/api/v1/predict", json={"region_id": "mumbai"}).json()["data"]
+    alert = create(client, auth, prediction_id=made["prediction_id"]).json()["data"]
+    assert alert["prediction_id"] == made["prediction_id"]
+
+
+def test_list_filters_and_paginates(client, auth):
+    create(client, auth)
+    create(client, auth, region_id="kurla", status="ISSUED")
+    create(client, auth, region_id="kurla")
+    listing = lambda **p: client.get("/api/v1/alerts", params=p).json()["data"]  # noqa: E731
+    assert listing()["total"] == 3
+    assert listing(status="ISSUED")["total"] == 1
+    assert listing(region_id="kurla")["total"] == 2
+    page = listing(limit=1, offset=1)
+    assert (len(page["alerts"]), page["total"]) == (1, 3)
+    assert client.get("/api/v1/alerts", params={"limit": 500}).status_code == 422
+    assert client.get("/api/v1/alerts", params={"status": "SENT"}).status_code == 422
+
+
+def test_unknown_alert_is_404(client):
+    assert client.get("/api/v1/alerts/HW-2026-9999").status_code == 404
+
+
+def test_alert_writes_are_rate_limited(client, auth):
+    limit = client.app_ctx.settings.rate_limit_alerts_per_minute
+    codes = [create(client, auth).status_code for _ in range(limit + 1)]
+    assert codes[-1] == 429
+
+
+def test_channel_list_matches_the_ui(client):
+    labels = [c["label"] for c in client.get("/api/v1/alert-channels").json()["data"]]
+    assert labels == [
+        "Public Mobile Alert",
+        "Government Portal",
+        "Public Display Boards",
+        "Emergency Services",
+        "Hospitals & Health Centres",
     ]
-    issued = client.get(f"{ALERTS}?status=ISSUED").json()["data"]
-    assert [a["alert_id"] for a in issued["items"]] == ["HW-2026-0002"]
-    kurla = client.get(f"{ALERTS}?region_id=kurla").json()["data"]
-    assert [a["region"]["name"] for a in kurla["items"]] == ["Kurla"]
-    second = client.get(f"{ALERTS}?limit=1&offset=1").json()["data"]
-    assert [a["alert_id"] for a in second["items"]] == ["HW-2026-0002"]
-    assert client.get(f"{ALERTS}?status=SENT").status_code == 422
-    assert client.get(f"{ALERTS}?limit=0").status_code == 422
-
-
-def test_unknown_alert(client):
-    response = client.get(f"{ALERTS}/HW-2026-0099")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "ALERT_NOT_FOUND"
-    assert client.get(f"{ALERTS}/../../etc").status_code == 404
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"channels": []},
-        {"channels": ["PUBLIC_MOBILE_ALERT", "PUBLIC_MOBILE_ALERT"]},
-        {"channels": ["CARRIER_PIGEON"]},
-        {"severity": "EXTREME"},
-        {"status": "SENT"},
-        {"message": ""},
-        {"message": "x" * 1001},
-        {"client_request_id": "not-a-uuid"},
-        {"region_id": None},
-    ],
-)
-def test_invalid_alert_input(client, auth, change):
-    response = client.post(ALERTS, json=new_alert() | change, headers=auth)
-    assert response.status_code == 422, response.text
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
-
-
-def test_an_empty_patch_and_an_unknown_region_are_rejected(client, auth):
-    client.post(ALERTS, json=new_alert(), headers=auth)
-    assert client.patch(f"{ALERTS}/HW-2026-0001", json={}, headers=auth).status_code == 422
-    response = client.post(ALERTS, json=new_alert(region_id="atlantis"), headers=auth)
-    assert response.json()["error"]["code"] == "UNKNOWN_REGION"
-
-
-def test_an_alert_can_cite_the_prediction_behind_it(client, auth):
-    prediction = client.post("/api/v1/predict", json={"region_id": "mumbai"}).json()["data"]
-    pid = prediction["prediction_id"]
-    alert = client.post(ALERTS, json=new_alert(prediction_id=pid), headers=auth).json()["data"]
-    assert alert["prediction_id"] == pid
-
-    unknown = client.post(ALERTS, json=new_alert(prediction_id="f" * 32), headers=auth)
-    assert unknown.status_code == 422
-    assert unknown.json()["error"]["code"] == "UNKNOWN_PREDICTION"
-    wrong_region = client.post(
-        ALERTS, json=new_alert(region_id="kurla", prediction_id=pid), headers=auth
-    )
-    assert wrong_region.json()["error"]["code"] == "PREDICTION_REGION_MISMATCH"
-    moved = client.patch(f"{ALERTS}/{alert['alert_id']}", json={"region_id": "kurla"}, headers=auth)
-    assert moved.json()["error"]["code"] == "PREDICTION_REGION_MISMATCH"
-
-
-def test_alert_writes_are_rate_limited(make_client, user):
-    client = make_client(rate_limit_alert_writes="1/minute")
-    token = client.post(
-        "/api/v1/auth/login",
-        json={"username": "officer", "password": PASSWORD},
-    ).json()["data"]["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
-    assert client.post(ALERTS, json=new_alert(), headers=headers).status_code == 201
-    assert client.post(ALERTS, json=new_alert(), headers=headers).status_code == 429

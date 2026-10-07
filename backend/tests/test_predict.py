@@ -1,223 +1,118 @@
-"""POST /api/v1/predict and the prediction reads, against a fake model and forecast."""
+from fakes import factor, reading
 
-from datetime import timedelta
-
-import pytest
-from api_support import NOW, heat
-
-from heatwave_api.errors import UpstreamBadResponse, UpstreamUnavailable
-
-PREDICT = "/api/v1/predict"
-FACTOR_FEATURES = {
-    "tmax_c",
-    "normal_tmax_c",
-    "rh_pct",
-    "wind_ms",
-    "solar_mj_m2",
-    "precip_mm",
-    "temp_deviation_c",
-}
+from heatwave_api.errors import PredictionFailed
 
 
-def test_forecast_prediction_carries_every_contract_field(client, fakes):
-    fakes.forecast.tmax["mumbai"] = [33.0, 34.0, 41.5, 36.0]  # lead 2 is the hot one
-    response = client.post(PREDICT, json={"region_id": "mumbai"})
-    assert response.status_code == 201, response.text
-    body = response.json()
-    assert body["status"] == "success" and body["error"] is None
-    assert body["meta"]["api_version"] == "v1" and body["meta"]["request_id"]
-    data = body["data"]
-
-    tomorrow = NOW.date() + timedelta(days=1)
-    assert data["forecast_window"] == {
-        "start": tomorrow.isoformat(),
-        "end": (tomorrow + timedelta(days=2)).isoformat(),
-        "days": 3,
-        "label": "Next 3 days",
-    }
-    assert [d["lead_days"] for d in data["daily"]] == [1, 2, 3]
-    # The headline is the riskiest day, and every top-level field is that day's.
-    assert data["peak_date"] == (NOW.date() + timedelta(days=2)).isoformat()
-    peak = data["daily"][1]
-    assert data["risk_class"] == peak["risk_class"] == "SEVERE_HEATWAVE"
-    assert data["risk_label"] == "Severe Heatwave"
-    assert data["confidence"] == data["probabilities"]["SEVERE_HEATWAVE"] == 0.9
-    assert data["explanation"] == peak["explanation"]
-    assert data["inputs"] == peak["inputs"]
-
-    # Explainability is part of the same response, for every day (CLAUDE.md).
-    for day in data["daily"]:
-        factors = day["explanation"]["factors"]
-        assert {f["feature"] for f in factors} == FACTOR_FEATURES
-        assert [f["rank"] for f in factors] == list(range(1, 8))
-        assert day["explanation"]["summary"].startswith("The model predicts")
-    assert data["explanation"]["factors"][0]["feature"] == "temp_deviation_c"
-
-    # The dashboard's metric cards read these, never recompute them.
-    assert data["inputs"]["tmax_c"]["value"] == 41.5
-    assert data["inputs"]["tmax_c"]["display_value"] == "41.5 °C"
-    assert data["inputs"]["wind_ms"]["value"] == pytest.approx(2.24, abs=0.01)  # 10 m -> 2 m
-    deviation = data["inputs"]["temp_deviation_c"]["value"]
-    assert data["inputs"]["normal_tmax_c"]["value"] == pytest.approx(41.5 - deviation, abs=0.01)
-
-    assert [a["code"] for a in data["recommended_actions"]][:2] == [
-        "SEVERE_WARNING_ALL_CHANNELS",
-        "ACTIVATE_COOLING_CENTRES_EXTENDED",
-    ]
-    assert data["actions_version"] == "ACT-v1"
-    assert data["source"]["weather"] == "open_meteo_forecast" and data["source"]["fetched_at"]
-    assert data["model"] == {
-        "model_version": "xgboost-test",
-        "explainer_id": "xgboost-test+shap.0000",
-    }
-    assert response.headers["Location"] == f"/api/v1/predictions/{data['prediction_id']}"
+def predict(client, **body):
+    return client.post("/api/v1/predict", json={"region_id": "mumbai", **body})
 
 
-def test_a_stored_prediction_reads_back_identically(client):
-    created = client.post(PREDICT, json={"region_id": "kurla"}).json()["data"]
-    fetched = client.get(f"/api/v1/predictions/{created['prediction_id']}").json()["data"]
-    assert fetched == created
+def test_prediction_carries_the_full_contract(client):
+    r = predict(client, lead_days=1)
+    assert r.status_code == 200
+    d = r.json()["data"]
+    assert d["risk_class"] == "HEATWAVE"
+    assert d["confidence"] == 0.9
+    assert set(d["probabilities"]) == {"NORMAL", "HEATWAVE", "SEVERE_HEATWAVE"}
+    assert d["region"]["id"] == "mumbai"
+    assert d["forecast_window"]["lead_days"] == 1
+    assert d["forecast_window"]["horizon_days"] == 3
+    assert d["inputs"]["tmax_c"] == 42.0
+    assert d["prediction_id"].startswith("pred_")
+    assert d["weather"]["stale"] is False
 
 
-def test_peak_day_ties_go_to_the_higher_risk_then_the_earlier_day(client, fakes):
-    fakes.forecast.tmax["colaba"] = [33.0] * 4  # three identical NORMAL days
-    data = client.post(PREDICT, json={"region_id": "colaba"}).json()["data"]
-    assert data["risk_class"] == "NORMAL"
-    assert data["peak_date"] == data["daily"][0]["date"]
-    assert [a["code"] for a in data["recommended_actions"]] == [
-        "ROUTINE_MONITORING",
-        "KEEP_PLAN_READY",
-    ]
-
-
-def test_forecast_days_narrows_the_window(client):
-    data = client.post(PREDICT, json={"region_id": "mumbai", "forecast_days": 1}).json()["data"]
-    assert len(data["daily"]) == 1
-    assert data["forecast_window"]["label"] == "Next day"
-
-
-def test_the_stored_forecast_is_reused_until_it_is_stale(client, fakes):
-    client.post(PREDICT, json={"region_id": "mumbai"})
-    client.post(PREDICT, json={"region_id": "mumbai"})
-    client.get("/api/v1/weather?region_id=mumbai")
-    assert fakes.forecast.calls == 1
-    fakes.clock.now = NOW + timedelta(minutes=61)
-    client.post(PREDICT, json={"region_id": "mumbai"})
-    assert fakes.forecast.calls == 2
-
-
-def test_caller_supplied_conditions(client, fakes):
-    response = client.post(
-        PREDICT,
-        json={
-            "region_id": "andheri",
-            "conditions": [heat(0, 42.0), heat(1, 30.0, rh_pct=80, wind_ms=4, wind_height_m=2)],
-        },
+def test_prediction_returns_shap_factors_in_the_same_response(client):
+    """CLAUDE.md core contract: every prediction carries its SHAP top factors."""
+    explanation = predict(client).json()["data"]["explanation"]
+    assert [f["rank"] for f in explanation["factors"]] == [1, 2]
+    assert explanation["factors"][0]["feature"] == "temp_deviation_c"
+    assert {"contribution", "share_pct", "direction", "display_value"} <= set(
+        explanation["factors"][0]
     )
-    assert response.status_code == 201, response.text
-    data = response.json()["data"]
-    assert fakes.forecast.calls == 0
-    assert data["source"] == {"weather": "client", "issued_at": None, "fetched_at": None}
-    assert [d["lead_days"] for d in data["daily"]] == [0, 1]
-    assert data["peak_date"] == NOW.date().isoformat()
-    # Missing humidity was imputed, and the response says so wherever it shows.
-    assert data["daily"][0]["inputs"]["rh_pct"]["imputed"] is True
-    assert data["daily"][1]["inputs"]["rh_pct"]["imputed"] is False
-    assert data["daily"][1]["inputs"]["wind_ms"]["value"] == 4.0  # already at 2 m
+    assert explanation["model_version"] == "fake-model-v1"
+    assert explanation["explainer_id"].startswith("fake-model-v1+shap")
 
 
-@pytest.mark.parametrize(
-    "body, where",
-    [
-        ({"region_id": "mumbai", "conditions": [heat(0, 40.0, wind_ms=3)]}, "conditions"),
-        ({"region_id": "mumbai", "forecast_days": 2, "conditions": [heat(0)]}, ""),
-        ({"region_id": "mumbai", "conditions": [heat(0), heat(0)]}, ""),
-        ({"region_id": "mumbai", "conditions": [heat(0, 75.0)]}, "tmax_c"),
-        ({"region_id": "mumbai", "conditions": [heat(0, rh_pct=120)]}, "rh_pct"),
-        ({"region_id": "mumbai", "conditions": []}, "conditions"),
-        ({"region_id": "mumbai", "forecast_days": 4}, "forecast_days"),
-        ({"region_id": "mumbai", "surprise": 1}, "surprise"),
-        ({"region_id": "Mumbai Central!"}, "region_id"),
-        ({}, "region_id"),
-    ],
-)
-def test_invalid_input_is_a_clear_422(client, fakes, body, where):
-    response = client.post(PREDICT, json=body)
-    assert response.status_code == 422
-    error = response.json()["error"]
-    assert error["code"] == "VALIDATION_ERROR" and error["category"] == "client"
-    assert any(where in ".".join(map(str, d["loc"])) for d in error["details"])
-    assert fakes.model.calls == 0  # rejected before touching the model
+def test_lead_days_defaults_to_today_and_is_bounded(client):
+    assert predict(client).json()["data"]["forecast_window"]["lead_days"] == 0
+    assert predict(client, lead_days=4).status_code == 422
+    assert predict(client, lead_days=-1).status_code == 422
 
 
-def test_unknown_region(client):
-    response = client.post(PREDICT, json={"region_id": "atlantis"})
-    assert response.status_code == 404
-    error = response.json()["error"]
-    assert error["code"] == "UNKNOWN_REGION"
-    assert "mumbai" in error["details"]["known_regions"]
+def test_unknown_region_is_a_404_before_any_scoring(client, predictor):
+    r = predict(client, region_id="atlantis")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "UNKNOWN_REGION"
+    assert predictor.calls == 0
 
 
-@pytest.mark.parametrize(
-    "exc, status, code",
-    [
-        (UpstreamUnavailable("down"), 503, "WEATHER_SOURCE_UNAVAILABLE"),
-        (UpstreamBadResponse("garbage"), 502, "WEATHER_SOURCE_ERROR"),
-    ],
-)
-def test_upstream_failures_are_reported_as_upstream(client, fakes, exc, status, code, repo):
-    fakes.forecast.error = exc
-    response = client.post(PREDICT, json={"region_id": "mumbai"})
-    assert response.status_code == status
-    assert response.json()["error"]["category"] == "upstream"
-    assert response.json()["error"]["code"] == code
-    assert repo.latest_run_ids() == {}  # nothing half-stored
+def test_weather_source_failure_is_an_upstream_503(client, weather):
+    weather.fail = True
+    r = predict(client)
+    assert r.status_code == 503
+    assert r.json()["error"]["kind"] == "upstream"
+    assert r.json()["error"]["code"] == "WEATHER_DATA_UNAVAILABLE"
 
 
-def test_a_forecast_missing_a_day_is_an_upstream_error(client, fakes):
-    fakes.forecast.tmax["mumbai"] = [33.0, None, 34.0, 35.0]
-    response = client.post(PREDICT, json={"region_id": "mumbai"})
-    assert response.status_code == 502
-    assert "maximum temperature" in response.json()["error"]["message"]
+def test_model_failure_is_an_internal_500_with_a_generic_message(client, predictor):
+    predictor.fail = PredictionFailed("The model could not score these conditions.")
+    r = predict(client)
+    assert r.status_code == 500
+    assert r.json()["error"]["kind"] == "internal"
+    assert r.json()["error"]["code"] == "PREDICTION_FAILED"
 
 
-def test_a_model_failure_is_internal_and_leaks_nothing(client, fakes):
-    fakes.model.fail = True
-    response = client.post(PREDICT, json={"region_id": "mumbai"})
-    assert response.status_code == 500
-    error = response.json()["error"]
-    assert (error["code"], error["category"]) == ("PREDICTION_FAILED", "internal")
-    assert "secret" not in response.text and "Traceback" not in response.text
+def test_stale_weather_is_served_but_flagged(client, weather):
+    weather.rows[("mumbai", 0)] = reading("mumbai", 0, issued_hours_ago=72)
+    d = predict(client).json()["data"]
+    assert d["weather"]["stale"] is True
+    assert d["weather"]["age_hours"] >= 72
 
 
-def test_latest_prediction_per_region(client):
-    first = client.post(PREDICT, json={"region_id": "mumbai"}).json()["data"]
-    second = client.post(PREDICT, json={"region_id": "mumbai", "forecast_days": 2}).json()["data"]
-    client.post(PREDICT, json={"region_id": "kurla"})
-    data = client.get("/api/v1/predictions/latest").json()["data"]
-    by_region = {p["region"]["id"]: p for p in data["items"]}
-    assert set(by_region) == {"mumbai", "kurla"}
-    # Both runs land in the same clock second; insertion order still decides.
-    assert by_region["mumbai"]["prediction_id"] == second["prediction_id"]
-    assert first["prediction_id"] != second["prediction_id"]
-    assert data["missing_regions"] == ["andheri", "dharavi", "colaba"]
-
-    one = client.get("/api/v1/predictions/latest?region_id=kurla").json()["data"]
-    assert [p["region"]["id"] for p in one["items"]] == ["kurla"]
+def test_prediction_is_stored_and_readable_back(client):
+    made = predict(client).json()["data"]
+    by_id = client.get(f"/api/v1/predictions/{made['prediction_id']}").json()["data"]
+    latest = client.get("/api/v1/predictions/latest", params={"region_id": "mumbai"}).json()["data"]
+    assert by_id == latest == made
 
 
-def test_unknown_prediction_id(client):
-    response = client.get(f"/api/v1/predictions/{'0' * 32}")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "PREDICTION_NOT_FOUND"
-    assert client.get("/api/v1/predictions/not-an-id").status_code == 422
+def test_latest_prediction_404s_when_none_was_made(client):
+    r = client.get("/api/v1/predictions/latest", params={"region_id": "kurla"})
+    assert r.status_code == 404
 
 
-def test_predict_is_rate_limited(make_client):
-    client = make_client(rate_limit_predict="2/minute")
-    for _ in range(2):
-        assert client.post(PREDICT, json={"region_id": "mumbai"}).status_code == 201
-    response = client.post(PREDICT, json={"region_id": "mumbai"})
-    assert response.status_code == 429
-    assert response.json()["error"]["code"] == "RATE_LIMITED"
-    assert 1 <= int(response.headers["Retry-After"]) <= 60
+def test_recommended_actions_are_deterministic_and_class_dependent(client, weather):
+    weather.rows[("mumbai", 0)] = reading("mumbai", 0, tmax=48.0)
+    weather.rows[("kurla", 0)] = reading("kurla", 0, tmax=30.0)
+    severe = predict(client).json()["data"]["recommended_actions"]
+    normal = predict(client, region_id="kurla").json()["data"]["recommended_actions"]
+    assert severe == predict(client).json()["data"]["recommended_actions"]
+    assert "Issue ward-level heat advisory" in severe
+    assert any("emergency services" in a.lower() for a in severe)
+    assert normal == ["Continue routine monitoring of the daily forecast"]
+
+
+def test_a_top_humidity_factor_adds_humid_heat_guidance(client, predictor):
+    predictor.factors = [factor(1, "rh_pct"), factor(2, "tmax_c")]
+    actions = predict(client).json()["data"]["recommended_actions"]
+    assert any("humid-heat" in a for a in actions)
+
+
+def test_a_low_ranked_humidity_factor_does_not(client, predictor):
+    predictor.factors = [
+        factor(i, f) for i, f in enumerate(["tmax_c", "wind_ms", "solar_mj_m2"], 1)
+    ]
+    predictor.factors.append(factor(4, "rh_pct"))
+    actions = predict(client).json()["data"]["recommended_actions"]
+    assert not any("humid-heat" in a for a in actions)
+
+
+def test_predict_is_rate_limited(client):
+    limit = client.app_ctx.settings.rate_limit_predict_per_minute
+    codes = [predict(client).status_code for _ in range(limit + 1)]
+    assert codes[:limit] == [200] * limit
+    assert codes[-1] == 429
+    r = predict(client)
+    assert r.headers["Retry-After"].isdigit()
+    assert r.json()["error"]["code"] == "RATE_LIMITED"

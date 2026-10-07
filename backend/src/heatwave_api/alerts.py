@@ -1,207 +1,234 @@
-"""Alert creation, editing and issuing (Part 07 §3.3-3.4, §6).
+"""Alert lifecycle (Part 07 §3.4, Part 08 §2.4): DRAFT → READY → ISSUED, one record.
 
-One alert record moves through an explicit status field, never through separate
-endpoints ("Save as Draft" and "Issue Warning" write the same record):
+    DRAFT ──► READY ──► ISSUED   (DRAFT ──► ISSUED directly is allowed: "Issue Warning")
+      ◄────────┘
+    ISSUED is terminal and immutable: a wrong warning is corrected by a new alert.
 
-    DRAFT <-> READY --> ISSUED          (DRAFT --> ISSUED directly is allowed too)
-
-ISSUED is final: an issued alert cannot be edited or un-issued. Reaching ISSUED, and
-only that, dispatches the alert to its channels. Each channel's outcome is committed
-on its own (READY -> PENDING -> NOTIFIED | FAILED), so a failed channel is visible on
-the record and in the response, not hidden behind an overall "success".
-
-Idempotency: every create carries a client-generated ``client_request_id``. Replaying
-it with the same body returns the original alert (HTTP 200, meta.idempotent_replay);
-with a different body it is a 409. A new alert always needs a new id.
+Issuing stores every selected channel as PENDING, then hands the alert to the
+dispatcher (Part 09: background worker by default, inline for tests), which sends each
+channel through the Notifier and writes its result back. A failed channel is stored as
+FAILED with its reason; the alert is still ISSUED (the decision to warn was made), and
+GET /alerts/{id} says which channels did not go out.
 """
 
-import hashlib
-import json
 import logging
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 
-from heatwave_api.db import utcnow
-from heatwave_api.db.repository import Repository
-from heatwave_api.errors import Conflict, NotFound, ValidationFailed
-from heatwave_api.predictions import resolve_region
-from heatwave_api.reference import CHANNEL_LABELS, DELIVERY_STATUSES
-from heatwave_api.schemas import AlertCreate, AlertUpdate
-from heatwave_api.services import Services
-from heatwave_api.weather import LOCAL_TZ
-from heatwave_ml.features import RISK_CLASS_LABELS
+from heatwave_api.catalog import Catalog
+from heatwave_api.errors import BadRequest, Conflict, NotFound, UnknownRegion
+from heatwave_api.notifications.dispatch import Dispatcher, make_dispatcher
+from heatwave_api.notifier import Notifier
+from heatwave_api.repositories import Repository
+from heatwave_api.schemas import (
+    AlertCreate,
+    AlertOut,
+    AlertUpdate,
+    ChannelDelivery,
+    DeliverySummary,
+    RegionOut,
+)
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("heatwave_api.alerts")
 
-ISSUED = "ISSUED"
-CODE_PREFIX = "HW"
-
-
-def alert_code(year: int, seq: int) -> str:
-    """HW-2026-0007: prefix, year, sequence within the year (the UI mockup's pattern)."""
-    return f"{CODE_PREFIX}-{year}-{seq:04d}"
-
-
-def _fingerprint(body: AlertCreate) -> str:
-    content = body.model_dump(mode="json", exclude={"client_request_id"})
-    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+TRANSITIONS = {
+    "DRAFT": {"DRAFT", "READY", "ISSUED"},
+    "READY": {"READY", "DRAFT", "ISSUED"},
+    "ISSUED": {"ISSUED"},
+}
 
 
-def _check_prediction(repo: Repository, prediction_id: str | None, region_id: str) -> None:
-    if prediction_id is None:
-        return
-    run = repo.run_summaries([prediction_id]).get(prediction_id)
-    if run is None:
-        raise ValidationFailed(f"No prediction '{prediction_id}'.", code="UNKNOWN_PREDICTION")
-    if run["region_id"] != region_id:
-        raise ValidationFailed(
-            f"Prediction '{prediction_id}' is for region '{run['region_id']}', not '{region_id}'.",
-            code="PREDICTION_REGION_MISMATCH",
-        )
-
-
-def create_alert(
-    services: Services, repo: Repository, user: dict, body: AlertCreate
-) -> tuple[dict, bool, list[str]]:
-    """Returns (alert payload, created, warnings). created=False for a replay."""
-    resolve_region(services, body.region_id)
-    fingerprint = _fingerprint(body)
-    now = utcnow()
-    with repo.transaction():
-        existing = repo.alert(client_request_id=str(body.client_request_id))
-        if existing is not None:
-            if existing["request_fingerprint"] != fingerprint:
-                raise Conflict(
-                    "This client_request_id was already used for a different alert. "
-                    "Generate a new one for a new alert.",
-                    code="IDEMPOTENCY_CONFLICT",
-                    details={"alert_id": existing["code"]},
-                )
-            return alert_payload(services, existing), False, []
-        _check_prediction(repo, body.prediction_id, body.region_id)
-        year = datetime.now(LOCAL_TZ).year
-        seq = repo.next_alert_seq(year)
-        issued = body.status == ISSUED
-        alert_id = repo.insert_alert(
-            {
-                "code": alert_code(year, seq),
-                "year": year,
-                "seq": seq,
-                "region_id": body.region_id,
-                "severity": body.severity,
-                "status": body.status,
-                "message": body.message,
-                "prediction_id": body.prediction_id,
-                "client_request_id": str(body.client_request_id),
-                "request_fingerprint": fingerprint,
-                "created_by": user["id"],
-                "created_at": now,
-                "updated_at": now,
-                "issued_at": now if issued else None,
-                "issued_by": user["id"] if issued else None,
-            }
-        )
-        repo.replace_channels(alert_id, body.channels, "PENDING" if issued else "READY", now)
-        code = alert_code(year, seq)
-    log.info(
-        "alert created",
-        extra={"alert": code, "status": body.status, "region_id": body.region_id},
+def summarize(channels: list[ChannelDelivery]) -> DeliverySummary:
+    count = lambda status: sum(c.status == status for c in channels)  # noqa: E731
+    return DeliverySummary(
+        total=len(channels),
+        notified=count("NOTIFIED"),
+        failed=count("FAILED"),
+        pending=count("PENDING"),
+        all_delivered=all(c.status == "NOTIFIED" for c in channels),
     )
-    warnings = dispatch(services, repo, code) if issued else []
-    return alert_payload(services, repo.alert(code=code)), True, warnings
 
 
-def update_alert(
-    services: Services, repo: Repository, user: dict, code: str, body: AlertUpdate
-) -> tuple[dict, list[str]]:
-    changes = body.model_dump(exclude_unset=True)
-    now = utcnow()
-    with repo.transaction():
-        alert = repo.alert(code=code)
-        if alert is None:
-            raise NotFound(f"No alert '{code}'.", code="ALERT_NOT_FOUND")
-        if alert["status"] == ISSUED:
-            raise Conflict(
-                f"Alert {code} has been issued and can no longer be changed.",
-                code="ALERT_ALREADY_ISSUED",
+class AlertService:
+    def __init__(
+        self,
+        repo: Repository,
+        catalog: Catalog,
+        notifier: Notifier,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        dispatch_mode: str = "inline",
+    ):
+        self.repo, self.catalog, self.notifier, self.clock = repo, catalog, notifier, clock
+        self.dispatcher: Dispatcher = make_dispatcher(dispatch_mode, self.deliver)
+
+    # -- helpers ----------------------------------------------------------------------
+
+    def _region(self, region_id: str) -> RegionOut:
+        region = self.catalog.regions.get(region_id)
+        if region is None:
+            raise UnknownRegion(f"Unknown region '{region_id}'.")
+        return RegionOut(**region.__dict__)
+
+    def _check_channels(self, channels: list[str]) -> list[str]:
+        unknown = [c for c in channels if c not in self.catalog.channels]
+        if unknown:
+            raise BadRequest(
+                f"Unknown channel(s) {unknown}.", details={"valid": sorted(self.catalog.channels)}
             )
-        region_id = changes.get("region_id", alert["region_id"])
-        if "region_id" in changes:
-            resolve_region(services, region_id)
-        if "prediction_id" in changes or "region_id" in changes:
-            _check_prediction(repo, changes.get("prediction_id", alert["prediction_id"]), region_id)
-        channels = changes.pop("channels", None)
-        issuing = changes.get("status") == ISSUED
-        if issuing:
-            changes |= {"issued_at": now, "issued_by": user["id"]}
-        repo.update_alert(alert["id"], changes | {"updated_at": now})
-        if channels is not None:
-            repo.replace_channels(alert["id"], channels, "READY", now)
-        if issuing:
-            repo.set_channels_status(alert["id"], "PENDING", now)
-    log.info("alert updated", extra={"alert": code, "fields": sorted(body.model_fields_set)})
-    warnings = dispatch(services, repo, code) if issuing else []
-    return alert_payload(services, repo.alert(code=code)), warnings
+        return list(dict.fromkeys(channels))  # a channel listed twice is notified once
 
+    def _deliveries(self, channels: list[str], status: str = "READY") -> list[ChannelDelivery]:
+        now = self.clock()
+        return [
+            ChannelDelivery(
+                channel=c, label=self.catalog.channels[c].label, status=status, updated_at=now
+            )
+            for c in channels
+        ]
 
-def dispatch(services: Services, repo: Repository, code: str) -> list[str]:
-    """Deliver an issued alert to each of its channels, recording each outcome as it
-    happens. Never raises for a channel failure; returns one warning per failure.
-
-    Synchronous for now: the mock is instant, and the response then carries the real
-    per-channel status. Part 09 decides whether live providers move to a background
-    task; the frontend polls GET /alerts/{id} either way (Part 13).
-    """
-    alert = repo.alert(code=code)
-    warnings = []
-    for channel in alert["channels"]:
-        name = channel["channel"]
-        try:
-            result = services.notifier.send(alert, name)
-            status, error = ("NOTIFIED", None) if result.delivered else ("FAILED", result.error)
-        except Exception as exc:  # one channel's crash must not stop the others
-            log.exception("delivery crashed", extra={"alert": code, "channel": name})
-            status, error = "FAILED", f"Delivery error ({type(exc).__name__})"
-        repo.record_delivery(alert["id"], name, status, error)
-        log.info(
-            "alert delivery",
-            extra={"alert": code, "channel": name, "delivery_status": status, "error": error},
-        )
-        if status == "FAILED":
-            warnings.append(f"{CHANNEL_LABELS[name]}: delivery failed ({error})")
-    return warnings
-
-
-def _user(row: dict | None) -> dict | None:
-    return {"username": row["username"], "display_name": row["display_name"]} if row else None
-
-
-def alert_payload(services: Services, alert: dict) -> dict:
-    summary = dict.fromkeys(DELIVERY_STATUSES, 0)
-    for c in alert["channels"]:
-        summary[c["status"]] += 1
-    return {
-        "alert_id": alert["code"],
-        "status": alert["status"],
-        "severity": alert["severity"],
-        "severity_label": RISK_CLASS_LABELS[alert["severity"]],
-        "region": services.reference.display_region(alert["region_id"]),
-        "message": alert["message"],
-        "channels": [
-            {
-                "channel": c["channel"],
-                "label": CHANNEL_LABELS[c["channel"]],
-                "status": c["status"],
-                "attempts": c["attempts"],
-                "last_error": c["last_error"],
-                "updated_at": c["updated_at"],
+    def _with(self, alert: AlertOut, **changes) -> AlertOut:
+        channels = changes.get("channels", alert.channels)
+        return alert.model_copy(
+            update={
+                **changes,
+                "delivery_summary": summarize(channels),
+                "updated_at": self.clock(),
+                "idempotent_replay": False,
             }
-            for c in alert["channels"]
-        ],
-        "delivery_summary": summary,
-        "prediction_id": alert["prediction_id"],
-        "created_at": alert["created_at"],
-        "created_by": _user(alert["creator"]),
-        "updated_at": alert["updated_at"],
-        "issued_at": alert["issued_at"],
-        "issued_by": _user(alert["issuer"]),
-    }
+        )
+
+    # -- operations -------------------------------------------------------------------
+
+    def create(self, body: AlertCreate, user_id: str) -> AlertOut:
+        key = (user_id, str(body.client_request_id))
+        existing = self.repo.find_alert_by_request(*key)
+        if existing is not None:
+            # Same request id, different content, is a client bug, not a replay.
+            if not self._same_request(existing, body):
+                raise Conflict("This client_request_id was already used for a different alert.")
+            return existing.model_copy(update={"idempotent_replay": True})
+
+        region = self._region(body.region_id)
+        channels = self._check_channels(body.channels)
+        if body.prediction_id and self.repo.get_prediction(body.prediction_id) is None:
+            raise BadRequest(f"Unknown prediction '{body.prediction_id}'.")
+
+        now = self.clock()
+        alert_id = f"HW-{now.year}-{self.repo.next_alert_sequence(now.year):04d}"
+        deliveries = self._deliveries(channels)
+        alert = AlertOut(
+            alert_id=alert_id,
+            status="DRAFT",
+            severity=body.severity,
+            region=region,
+            message=body.message,
+            prediction_id=body.prediction_id,
+            channels=deliveries,
+            delivery_summary=summarize(deliveries),
+            created_at=now,
+            created_by=user_id,
+            issued_at=None,
+            updated_at=now,
+        )
+        self.repo.save_alert(alert, key)
+        if body.status != "DRAFT":
+            alert = self._transition(alert, body.status)
+        log.info(
+            "alert created",
+            extra={"alert_id": alert.alert_id, "status": alert.status, "severity": alert.severity},
+        )
+        return alert
+
+    def update(self, alert_id: str, body: AlertUpdate) -> AlertOut:
+        alert = self.get(alert_id)
+        edits = body.model_dump(exclude_none=True, exclude={"status"})
+        if alert.status == "ISSUED":
+            raise Conflict(
+                "This alert has been issued and cannot be changed. Create a new alert instead."
+            )
+        changes: dict = {}
+        if "severity" in edits:
+            changes["severity"] = edits["severity"]
+        if "message" in edits:
+            changes["message"] = edits["message"]
+        if "channels" in edits:
+            changes["channels"] = self._deliveries(self._check_channels(edits["channels"]))
+        if changes:
+            alert = self._with(alert, **changes)
+        if body.status is not None and body.status != alert.status:
+            alert = self._transition(alert, body.status)
+        else:
+            self.repo.save_alert(alert)
+        return alert
+
+    def _transition(self, alert: AlertOut, target: str) -> AlertOut:
+        if target not in TRANSITIONS[alert.status]:
+            raise Conflict(f"An alert cannot go from {alert.status} to {target}.")
+        if target != "ISSUED":
+            alert = self._with(alert, status=target)
+            self.repo.save_alert(alert)
+            return alert
+        return self._issue(alert)
+
+    def _issue(self, alert: AlertOut) -> AlertOut:
+        # Persist ISSUED with every channel PENDING *before* dispatching, so a crash
+        # mid-dispatch leaves a truthful record rather than an alert that looks unsent
+        # (and resume_pending() picks it up again on restart).
+        pending = self._deliveries([c.channel for c in alert.channels], "PENDING")
+        alert = self._with(alert, status="ISSUED", issued_at=self.clock(), channels=pending)
+        self.repo.save_alert(alert)
+        self.dispatcher.submit(alert.alert_id)
+        # Inline: the final statuses. Background: whatever is done so far (usually PENDING).
+        return self.get(alert.alert_id)
+
+    def deliver(self, alert_id: str) -> None:
+        """The dispatch job: send every PENDING channel, writing each outcome as it lands.
+
+        Channels are independent: one failing (or the notifier raising) never stops the
+        rest. Each result is persisted immediately, so a poll shows progress.
+        """
+        alert = self.get(alert_id)
+        for delivery in alert.channels:
+            if delivery.status != "PENDING":
+                continue  # already settled (e.g. a resumed job after a restart)
+            try:
+                outcome = self.notifier.send(alert, delivery.channel)
+                status, detail = outcome.status, outcome.detail
+            except Exception:  # a notifier bug must not abort the other channels
+                log.exception("notifier raised", extra={"alert_id": alert.alert_id})
+                status, detail = "FAILED", "The notification service reported an internal error."
+            if status == "FAILED":
+                log.warning(
+                    "channel delivery failed",
+                    extra={"alert_id": alert.alert_id, "channel": delivery.channel},
+                )
+            self.repo.update_delivery(
+                alert.alert_id,
+                delivery.model_copy(
+                    update={"status": status, "detail": detail, "updated_at": self.clock()}
+                ),
+            )
+
+    def resume_pending(self) -> list[str]:
+        """Queue every ISSUED alert that still has PENDING channels (startup recovery)."""
+        alert_ids = self.repo.alerts_with_pending_deliveries()
+        for alert_id in alert_ids:
+            self.dispatcher.submit(alert_id)
+        if alert_ids:
+            log.warning("resuming undelivered alerts", extra={"alert_ids": alert_ids})
+        return alert_ids
+
+    def get(self, alert_id: str) -> AlertOut:
+        alert = self.repo.get_alert(alert_id)
+        if alert is None:
+            raise NotFound(f"Alert '{alert_id}' does not exist.")
+        return alert
+
+    @staticmethod
+    def _same_request(existing: AlertOut, body: AlertCreate) -> bool:
+        return (
+            existing.region.id == body.region_id
+            and existing.severity == body.severity
+            and existing.message == body.message
+            and sorted(c.channel for c in existing.channels) == sorted(set(body.channels))
+        )

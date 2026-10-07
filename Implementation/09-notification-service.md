@@ -52,13 +52,13 @@ Build the service responsible for actually delivering an issued alert to its sel
 
 ## 9. Acceptance criteria / "done"
 
-- [ ] Channel-to-delivery-mechanism mapping documented (Section 2).
-- [ ] Email and SMS providers selected, with a mock/local mode for development.
-- [ ] Message templates defined per channel type, separated from dispatch logic.
-- [ ] Dispatch flow implemented per Section 5, writing status back to the database.
-- [ ] Retry policy implemented and distinguishes transient vs. permanent failure.
-- [ ] Dispatch attempts logged for audit purposes.
-- [ ] Synchronous-vs-async decision made and documented, with the frontend status-refresh approach defined accordingly.
+- [x] Channel-to-delivery-mechanism mapping documented (Section 2). *(`mechanism:` per channel in `config/alert_channels.yaml`, validated at startup and exposed by `GET /alert-channels`: public_mobile + emergency_services → SMS, hospitals → email, government_portal + display_boards → in-app advisory. `docs/notifications/README.md` §1.)*
+- [x] Email and SMS providers selected, with a mock/local mode for development. *(SendGrid + Twilio over stdlib HTTP with timeouts; `NOTIFICATIONS_MODE=mock` is the default, sends nothing and can simulate failures; `live` refuses to start without every credential and never runs with `APP_ENV=test`. The committed recipient list is `.invalid` addresses and Twilio test numbers only. §2, §4.)*
+- [x] Message templates defined per channel type, separated from dispatch logic. *(`config/notification_templates.yaml`, one per mechanism; SMS capped at 160 GSM-7 characters by shortening only the advisory text. §3.)*
+- [x] Dispatch flow implemented per Section 5, writing status back to the database. *(Per-region recipient lists, channels dispatched independently, each outcome written to `alert_channel_deliveries` as PENDING → NOTIFIED/FAILED. §5.)*
+- [x] Retry policy implemented and distinguishes transient vs. permanent failure. *(Per recipient: timeout/429/5xx retried 3× with 2 s/4 s backoff; other 4xx and missing recipients are never retried. §6.)*
+- [x] Dispatch attempts logged for audit purposes. *(Append-only `notification_attempts` table (migration 0002) plus a JSON log line per attempt; `GET /alerts/{id}/attempts` (protected). §7.)*
+- [x] Synchronous-vs-async decision made and documented, with the frontend status-refresh approach defined accordingly. *(Background worker thread; the API returns PENDING and Part 13 polls `GET /alerts/{id}` while `delivery_summary.pending > 0`; PENDING is resumed at startup. A real queue is the documented next step. §8, ADR 0008.)*
 
 ## 10. Handoff note template
 

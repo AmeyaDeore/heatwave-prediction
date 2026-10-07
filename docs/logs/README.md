@@ -51,7 +51,10 @@ Add every new log to the index below.
 | [03-data-preprocessing-feature-engineering.md](03-data-preprocessing-feature-engineering.md) | 03 Preprocessing & feature engineering | Complete | 2026-09-28/29 | `44d0ca5` |
 | [04-model-development-training.md](04-model-development-training.md) | 04 Model development & training | Complete | 2026-09-28/29 | `894364b` |
 | [05-model-evaluation-selection.md](05-model-evaluation-selection.md) | 05 Model evaluation & selection | Complete | 2026-09-29 | `fbdf161` `71dd36d` `e5ead11` |
-| [06-shap-explainability-integration.md](06-shap-explainability-integration.md) | 06 SHAP explainability integration | Complete (updated 2026-10-06: version-keying fix) | 2026-09-29, 2026-10-06 | `0d270d9` `c9b5de9` `7a43a88` `15f641d` |
-| [07-backend-api-architecture.md](07-backend-api-architecture.md) | 07 Backend API architecture | Complete (Part 08 to review the schema) | 2026-10-06 | `15f641d` + Part 07 commit |
+| [06-shap-explainability-integration.md](06-shap-explainability-integration.md) | 06 SHAP explainability integration | Complete | 2026-09-29 | `0d270d9` `c9b5de9` + artifact/docs commit |
+| [07-backend-api-architecture.md](07-backend-api-architecture.md) | 07 Backend API architecture | Complete, with persistence / notifications / users as seams for Parts 08, 09, 15 | 2026-09-29 | `5b44e1c` on `part-07/backend-api` |
+| [08-database-design.md](08-database-design.md) | 08 Database design (SQLite) | Complete (Response Coordination panel handed to Part 13) | 2026-10-07 | `5b44e1c` on `part-07/backend-api` |
+| [09-notification-service.md](09-notification-service.md) | 09 Notification service | Complete (delivery-receipt webhooks deferred to Parts 16/18) | 2026-10-07 | `part-07/backend-api` |
+| [2026-10-07-merge-parts-07-09-into-main.md](2026-10-07-merge-parts-07-09-into-main.md) | Merge of Parts 07-09 into `main` (replaces main's earlier Part 07 backend) | Done | 2026-10-07 | merge commit on `main` |
 
-**Running totals after Part 07:** 250 automated tests passing (158 ML + 92 backend) · production model `xgboost-20260928T100821Z-0bde51` · production explainer `xgboost-20260928T100821Z-0bde51+shap.2154641e` · API `/api/v1` (contract: `docs/api/README.md`) · next parts: 08 (database review), 09, 10.
+**Running totals after Part 09:** 289 automated tests passing · production model `xgboost-20260928T100821Z-0bde51` · production explainer `xgboost-20260928T100821Z-0bde51+shap.2154641e` · schema version `0002` · notifications: SendGrid/Twilio behind `NOTIFICATIONS_MODE` (mock default), background dispatch with polling · next part: 10 (frontend architecture & design system).

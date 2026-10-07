@@ -1,20 +1,19 @@
 [project]
 name = "heatwave-api"
-version = "0.2.0"
+version = "0.1.0"
 description = "FastAPI service for the AI Heatwave Prediction & Early Warning System"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    # The feature computation (Part 03), model bundle/registry (Parts 04-05) and SHAP
-    # explainer (Part 06) are imported from here, never reimplemented in the backend.
-    "heatwave-ml",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic-settings>=2.4",
     "httpx2>=2.13.1",
+    "pyyaml>=6.0",
+    "heatwave-ml",
 ]
 
 [project.scripts]
-heatwave-api = "heatwave_api.cli:main"
+heatwave-db = "heatwave_api.db.cli:main"
 
 [tool.uv.sources]
 heatwave-ml = { workspace = true }
