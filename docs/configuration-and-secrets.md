@@ -24,12 +24,17 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 |----------|---------|---------|---------------|
 | `APP_ENV`, `LOG_LEVEL` | backend, ml | no | 01 |
 | `DATABASE_URL` | backend | yes, once it is Postgres | 08 |
+| `DATABASE_BACKUP_DIR` | backend (`heatwave-db backup`) | no | 08 |
 | `MODEL_ARTIFACT_DIR`, `MODEL_VERSION` | backend, ml | no | 04/05 |
 | `MODEL_REGISTRY_DIR` | backend, ml | no | 05 |
 | `MODEL_SELECTION_POLICY` | ml | no | 05 |
 | `RISK_CONFIG_PATH` | backend, ml | no | 01/03 |
 | `CORS_ALLOWED_ORIGINS` | backend | no | 07 |
-| `AUTH_SECRET_KEY`, `AUTH_TOKEN_TTL_MINUTES` | backend | **yes** (key) | 15 |
+| `SEASONAL_NORMALS_FILE`, `ALERT_CHANNELS_FILE`, `RECOMMENDED_ACTIONS_FILE` | backend (+ ml for the normals) | no | 07 |
+| `WEATHER_FEATURES_FILE`, `WEATHER_STALE_AFTER_HOURS` | backend | no | 07 |
+| `RATE_LIMIT_PREDICT_PER_MINUTE`, `RATE_LIMIT_ALERTS_PER_MINUTE`, `RATE_LIMIT_LOGIN_PER_MINUTE` | backend | no | 07 |
+| `DEMO_USER_USERNAME`, `DEMO_USER_PASSWORD` | backend (`local`/`test` only) | **yes** if ever reused; never set in staging or production | 07 |
+| `AUTH_SECRET_KEY`, `AUTH_TOKEN_TTL_MINUTES` | backend | **yes** (key). Startup refuses the local default outside `local`/`test` | 07/15 |
 | `NOTIFICATIONS_MODE` | backend | no | 09 |
 | `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS` | backend | **yes** (key) | 09 |
 | `SMS_PROVIDER`, `SMS_API_KEY`, `SMS_SENDER_ID` | backend | **yes** (key) | 09 |

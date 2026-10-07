@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     app_env: Literal["local", "staging", "production", "test"] = "local"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
+    # Part 08. Relative sqlite paths resolve from the repo root; sqlite:///:memory: for tests.
     database_url: str = "sqlite:///data/local/heatwave.db"
+    database_backup_dir: Path = Path("data/local/backups")
 
     model_artifact_dir: Path = Path("ml/artifacts")
     model_registry_dir: Path = Path("ml/registry")
@@ -33,6 +35,19 @@ class Settings(BaseSettings):
     # newest": promotion is an explicit, recorded action. An exact version id pins one.
     model_version: str = "production"
     risk_config_path: Path = Path("config/risk_classes.yaml")
+    seasonal_normals_file: Path = Path("config/seasonal_normals.csv")
+    monitored_regions_file: Path = Path("config/regions.yaml")
+    alert_channels_file: Path = Path("config/alert_channels.yaml")
+    recommended_actions_file: Path = Path("config/recommended_actions.yaml")
+
+    # Live inference reads the conditions the pipeline already ingested (Part 07 §2
+    # decision, docs/api/README.md): the backend makes no calls to weather providers.
+    weather_features_file: Path = Path("data/sample/forecast_features.csv")
+    weather_stale_after_hours: int = 36  # older data is still served, but flagged stale
+
+    rate_limit_predict_per_minute: int = 30
+    rate_limit_alerts_per_minute: int = 20
+    rate_limit_login_per_minute: int = 10
 
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"]
@@ -40,6 +55,9 @@ class Settings(BaseSettings):
 
     auth_secret_key: SecretStr = SecretStr("change-me-local-only")
     auth_token_ttl_minutes: int = 60
+    # Local/test only: one seeded demo official, until Part 15 adds real users (Part 08).
+    demo_user_username: str = "official"
+    demo_user_password: SecretStr = SecretStr("demo-official-local")
 
     notifications_mode: Literal["mock", "live"] = "mock"
     email_provider: str = ""
@@ -58,7 +76,17 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("model_artifact_dir", "model_registry_dir", "risk_config_path")
+    @field_validator(
+        "model_artifact_dir",
+        "model_registry_dir",
+        "risk_config_path",
+        "seasonal_normals_file",
+        "monitored_regions_file",
+        "alert_channels_file",
+        "recommended_actions_file",
+        "weather_features_file",
+        "database_backup_dir",
+    )
     @classmethod
     def _resolve_from_repo_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else REPO_ROOT / value

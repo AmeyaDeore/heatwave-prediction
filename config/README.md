@@ -5,9 +5,11 @@ Non-secret configuration that more than one part of the system reads. Each value
 | File | Read by | Env var pointing at it |
 |------|---------|------------------------|
 | `risk_classes.yaml` | ml (labelling), backend (validation) | `RISK_CONFIG_PATH` |
-| `regions.yaml` | ml (ingestion), backend/db seed (Part 08) | `MONITORED_REGIONS_FILE` |
+| `regions.yaml` | ml (ingestion), backend (upserted into the `regions` table at startup, Part 08) | `MONITORED_REGIONS_FILE` |
 | `seasonal_normals.csv` | ml (features, labels, synthetic generator), backend (live features, Part 07) | `SEASONAL_NORMALS_FILE` |
 | `model_selection.yaml` | ml (evaluation, Part 05; explainer latency budget, Part 06) | `MODEL_SELECTION_POLICY` |
+| `alert_channels.yaml` | backend (alert channel ids and labels, Part 07; delivery, Part 09) | `ALERT_CHANNELS_FILE` |
+| `recommended_actions.yaml` | backend (risk class + top factors → authority actions, Part 07) | `RECOMMENDED_ACTIONS_FILE` |
 | `feature_labels.json` | ml (`features/schema.py`, explanations), backend (Part 07), frontend (Parts 10–14) | none: fixed path, imported directly |
 
 `model_selection.yaml` is the production-model selection policy. Change it only **before** a test evaluation, in its own commit, and bump `policy_version`: `heatwave-evaluate run` refuses to score the test split while this file has uncommitted changes (see `docs/ml/evaluation.md` §2).

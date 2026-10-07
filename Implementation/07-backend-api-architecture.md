@@ -78,13 +78,17 @@ Design each endpoint below with a full request/response contract (field names, t
 
 ## 8. Acceptance criteria / "done"
 
-- [ ] Full request/response contract documented for every endpoint in Section 3.
-- [ ] Response envelope, versioning, validation, CORS, and rate-limiting conventions decided and documented.
-- [ ] Model/explainer startup-loading and health-check behavior implemented.
-- [ ] Error-handling taxonomy implemented consistently across endpoints.
-- [ ] Draft-vs-issued alert status flow implemented as specified.
-- [ ] Each endpoint independently testable against a mocked database and mocked model/explainer.
+- [x] Full request/response contract documented for every endpoint in Section 3. *(`docs/api/README.md` §2 (fields, types, required/optional, error cases per endpoint) plus the generated `/openapi.json`. Routes are under `/api/v1`.)*
+- [x] Response envelope, versioning, validation, CORS, and rate-limiting conventions decided and documented. *(`{status, data|error, meta.request_id}`; `/api/v1`; strict Pydantic bodies with 422 that never echoes input; origin allow-list; 30/20/10 per minute on predict / alert writes / login; idempotency via `client_request_id`. `docs/api/README.md` §1, ADR 0006. The weather-source decision, the plan's open question, is §4: read what the pipeline ingested.)*
+- [x] Model/explainer startup-loading and health-check behavior implemented. *(Loaded once in `lifespan`; a missing, stale or tampered artifact stops the process. `/health` is liveness, `/api/v1/health/ready` reports model, explainer and weather freshness with a 503 when not ready. A model update is promote, rebuild explainer, restart: §5.)*
+- [x] Error-handling taxonomy implemented consistently across endpoints. *(client / upstream / internal with fixed statuses and codes; unexpected errors become a 500 with no trace or paths, and the log carries the traceback under the same request id. Tested on every endpoint family.)*
+- [x] Draft-vs-issued alert status flow implemented as specified. *(One record, one `status`: DRAFT → READY → ISSUED, ISSUED immutable. Per-channel delivery status with FAILED and a reason, so a partial failure is visible. Idempotent create.)*
+- [x] Each endpoint independently testable against a mocked database and mocked model/explainer. *(`create_app(settings, predictor=, weather=, repo=, notifier=)`; 75 tests use fakes with no model, file or database, plus 6 on the real production model.)*
 
 ## 9. Handoff note template
 
 > API base URL: <value>. Endpoint contracts documented at: <path/link>. Auth requirement per endpoint: <summary>. Part 08 owner confirms schema matches these contracts; Part 10 (frontend) can now build against this documented contract even before every endpoint is fully implemented, using mocked responses.
+
+**Also produced:** `POST/PATCH /alerts` behind a bearer token (a minimal login; Part 15 extends it), `GET /weather`, `/analytics` (model performance from the promotion pointer), `/predictions/latest`, `/regions`, `/alert-channels`, structured JSON logs, ADR 0006 and log 07. **Not done, by design:** persistence is an in-memory `Repository` until Part 08 (so the service must not be deployed yet), notifications are a `MockNotifier` until Part 09, and users are one seeded demo account until Part 15. Analytics trend and counts come from stored predictions until Part 08/14.
+
+**Filled-in handoff:** see §9 of [`docs/api/README.md`](../docs/api/README.md).

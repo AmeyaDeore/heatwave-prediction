@@ -1,0 +1,36 @@
+# Deterministic mapping from a prediction to the authority actions the UI shows
+# (Part 07 §3.1). Same risk class + same top factors => the same list, in this order.
+# Edit wording here, never in code. Bump `version` when the mapping changes.
+#
+# `by_risk_class` is the base list. `by_factor` adds extra actions when a feature is
+# among the top `top_n` ranked factors AND moves risk in the stated direction; extras
+# follow the base list, skip duplicates, and apply only to a risk class listed in `for`.
+version: RA-v1
+
+by_risk_class:
+  NORMAL:
+    - Continue routine monitoring of the daily forecast
+  HEATWAVE:
+    - Issue ward-level heat advisory
+    - Activate cooling centres in high-exposure wards
+    - Alert hospitals and health centres to expect heat-related cases
+    - Advise outdoor workers to avoid work between 12:00 and 16:00
+  SEVERE_HEATWAVE:
+    - Issue ward-level heat advisory
+    - Activate cooling centres in high-exposure wards
+    - Alert hospitals and health centres to expect heat-related cases
+    - Advise outdoor workers to avoid work between 12:00 and 16:00
+    - Brief emergency services and put field response teams on standby
+    - Request public display boards to show the heat warning
+
+by_factor:
+  - feature: rh_pct
+    direction: increases_risk
+    top_n: 3
+    for: [HEATWAVE, SEVERE_HEATWAVE]
+    action: Add humid-heat guidance to the advisory (body cooling is reduced at high humidity)
+  - feature: wind_ms
+    direction: decreases_risk
+    top_n: 3
+    for: [NORMAL]
+    action: Continue routine monitoring; wind is currently limiting heat build-up

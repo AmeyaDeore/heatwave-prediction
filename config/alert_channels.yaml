@@ -1,0 +1,14 @@
+# The distribution channels an alert can be sent to (Part 07 §3.3, Part 09).
+# Read by the backend to validate `channels` on POST /api/v1/alerts and to label them.
+# `id` is the stable API value; change `label` freely, never `id` (stored with deliveries).
+channels:
+  - id: public_mobile
+    label: Public Mobile Alert
+  - id: government_portal
+    label: Government Portal
+  - id: display_boards
+    label: Public Display Boards
+  - id: emergency_services
+    label: Emergency Services
+  - id: hospitals
+    label: Hospitals & Health Centres

@@ -8,7 +8,15 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic-settings>=2.4",
     "httpx2>=2.13.1",
+    "pyyaml>=6.0",
+    "heatwave-ml",
 ]
+
+[project.scripts]
+heatwave-db = "heatwave_api.db.cli:main"
+
+[tool.uv.sources]
+heatwave-ml = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
