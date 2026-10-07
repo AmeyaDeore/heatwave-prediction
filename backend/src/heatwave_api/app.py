@@ -29,7 +29,8 @@ from heatwave_api.db.connection import MEMORY, resolve_sqlite_path
 from heatwave_api.db.repository import Database, SqliteRepository, SqliteUserStore
 from heatwave_api.envelope import ErrorBody, ErrorEnvelope, Meta
 from heatwave_api.errors import ApiError, HttpFailure, ModelUnavailable
-from heatwave_api.notifier import MockNotifier, Notifier
+from heatwave_api.notifications.service import NotificationService
+from heatwave_api.notifier import Notifier
 from heatwave_api.predictor import Predictor, ProductionPredictor
 from heatwave_api.ratelimit import RateLimiter
 from heatwave_api.repositories import Repository
@@ -170,7 +171,19 @@ def build_context(
                 store.deactivate(DEMO_USER_ID)
             users = store
     repo.record_active_model(model_performance(predictor))
-    notifier = notifier or MockNotifier()
+    notifier = notifier or NotificationService.from_settings(settings, catalog, repo)
+    alerts = AlertService(
+        repo,
+        catalog,
+        notifier,
+        *([clock] if clock else []),
+        dispatch_mode=settings.notifications_dispatch,
+    )
+    alerts.resume_pending()  # channels left PENDING by a crash or shutdown go out now
+    log.info(
+        "notifications ready",
+        extra={"mode": settings.notifications_mode, "dispatch": settings.notifications_dispatch},
+    )
     return AppContext(
         settings=settings,
         catalog=catalog,
@@ -192,7 +205,7 @@ def build_context(
         predictions=PredictionService(
             predictor, weather, repo, catalog, settings.weather_stale_after_hours
         ),
-        alerts=AlertService(repo, catalog, notifier, *([clock] if clock else [])),
+        alerts=alerts,
     )
 
 
@@ -220,6 +233,7 @@ def create_app(settings: Settings | None = None, **overrides) -> FastAPI:
             extra={"model_version": info.model_version, "explainer_id": info.explainer_id},
         )
         yield
+        app.state.ctx.alerts.dispatcher.stop()  # finish queued deliveries before closing
         if isinstance(db := getattr(app.state.ctx.repo, "db", None), Database):
             db.close()
 

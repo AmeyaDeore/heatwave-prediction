@@ -1,14 +1,26 @@
 # The distribution channels an alert can be sent to (Part 07 §3.3, Part 09).
 # Read by the backend to validate `channels` on POST /api/v1/alerts and to label them.
 # `id` is the stable API value; change `label` freely, never `id` (stored with deliveries).
+#
+# `mechanism` is how the notification service delivers on that channel (Part 09 §2,
+# docs/notifications/README.md §1):
+#   sms     external SMS provider, to the channel's recipient list for the region
+#   email   external email provider, to the channel's recipient list for the region
+#   in_app  internal: writes a public advisory the portal / display boards poll
+#           (GET /api/v1/advisories); no third-party call
 channels:
   - id: public_mobile
     label: Public Mobile Alert
+    mechanism: sms
   - id: government_portal
     label: Government Portal
+    mechanism: in_app
   - id: display_boards
     label: Public Display Boards
+    mechanism: in_app
   - id: emergency_services
     label: Emergency Services
+    mechanism: sms
   - id: hospitals
     label: Hospitals & Health Centres
+    mechanism: email

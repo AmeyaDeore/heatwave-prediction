@@ -1,6 +1,7 @@
 """All /api/v1 endpoints. Contracts are in docs/api/README.md.
 
-Protected (bearer token): POST/PATCH alerts. Everything else is read-only.
+Protected (bearer token): POST/PATCH alerts and the delivery audit trail. Everything
+else is read-only.
 Rate limited: predict, alert writes and login.
 """
 
@@ -15,6 +16,7 @@ from heatwave_api.envelope import Envelope, Meta
 from heatwave_api.errors import ApiError, NotFound, UpstreamUnavailable
 from heatwave_api.ratelimit import limit
 from heatwave_api.schemas import (
+    AdvisoryOut,
     AlertCreate,
     AlertList,
     AlertOut,
@@ -23,6 +25,7 @@ from heatwave_api.schemas import (
     AnalyticsOut,
     ChannelOut,
     LoginRequest,
+    NotificationAttemptOut,
     PredictionOut,
     PredictRequest,
     ReadinessOut,
@@ -154,6 +157,31 @@ def list_alerts(
 @router.get("/alerts/{alert_id}", response_model=Envelope[AlertOut], tags=["alerts"])
 def get_alert(request: Request, alert_id: str):
     return ok(request, ctx(request).alerts.get(alert_id))
+
+
+@router.get(
+    "/alerts/{alert_id}/attempts",
+    response_model=Envelope[list[NotificationAttemptOut]],
+    tags=["alerts"],
+)
+def alert_attempts(request: Request, alert_id: str, user: Annotated[User, Depends(current_user)]):
+    """Audit trail: every dispatch attempt for this alert (protected: lists recipients)."""
+    c = ctx(request)
+    c.alerts.get(alert_id)  # 404 for an unknown alert, not an empty list
+    return ok(request, c.repo.list_attempts(alert_id))
+
+
+@router.get("/advisories", response_model=Envelope[list[AdvisoryOut]], tags=["alerts"])
+def advisories(
+    request: Request,
+    region_id: RegionQuery = None,
+    since: datetime | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+):
+    """Published public advisories (the in_app channels). Polled by the portal and boards."""
+    return ok(
+        request, ctx(request).repo.list_advisories(region_id=region_id, since=since, limit=limit)
+    )
 
 
 @router.post(

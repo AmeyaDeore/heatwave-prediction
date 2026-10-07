@@ -4,7 +4,7 @@ SQLite, one file, the sole source of truth for everything the dashboard shows. T
 
 | | |
 |---|---|
-| Schema (migrations) | [`backend/src/heatwave_api/db/migrations/`](../../backend/src/heatwave_api/db/migrations/) — `0001_initial_schema.sql` |
+| Schema (migrations) | [`backend/src/heatwave_api/db/migrations/`](../../backend/src/heatwave_api/db/migrations/) — `0001_initial_schema.sql`, `0002_notifications.sql` (Part 09) |
 | Data access | [`db/repository.py`](../../backend/src/heatwave_api/db/repository.py): `SqliteRepository` (the API's `Repository` protocol) and `SqliteUserStore` |
 | Migration runner / CLI | [`db/migrate.py`](../../backend/src/heatwave_api/db/migrate.py), `uv run heatwave-db …` ([`db/cli.py`](../../backend/src/heatwave_api/db/cli.py)) |
 | File location | `DATABASE_URL` (default `sqlite:///data/local/heatwave.db`, relative to the repo root; tests use `sqlite:///:memory:`) |
@@ -26,6 +26,8 @@ erDiagram
     predictions ||--|{ prediction_factors : "explained by (SHAP)"
     predictions ||--o{ alerts : "justifies"
     alerts ||--|{ alert_channel_deliveries : "distributed via"
+    alert_channel_deliveries ||--o{ notification_attempts : "audited by"
+    alerts ||--o{ public_advisories : "published as"
 ```
 
 - One region has many weather snapshots, predictions and alerts.
@@ -147,7 +149,32 @@ Once `ISSUED`, a trigger refuses any change to status, severity, message, region
 | `detail` | TEXT | why a delivery failed |
 | `updated_at` | TEXT | last change |
 
-Part 09's notifier writes each attempt's result here (through `AlertService` → `save_alert`). A new channel type is a row in the YAML file, not a schema change.
+Part 09's dispatch job writes each channel's outcome here as it lands (`AlertService.deliver` → `update_delivery`, which also moves `alerts.updated_at` so pollers see progress). A new channel type is a row in the YAML file, not a schema change.
+
+### `notification_attempts` (append-only, migration 0002, Part 09)
+| Column | Type | Constraints / notes |
+|---|---|---|
+| `attempt_id` | INTEGER | PK, insertion order |
+| `alert_id`, `channel` | TEXT | FK → `alert_channel_deliveries (alert_id, channel)` |
+| `mechanism` | TEXT | `sms` / `email` / `in_app` |
+| `provider` | TEXT | `twilio`, `sendgrid`, `mock-sms`, `mock-email`, `in_app`, `none` (no recipients) |
+| `recipient` | TEXT | phone/email; NULL for in_app |
+| `attempt` | INTEGER | 1-based try number for that recipient |
+| `outcome` | TEXT | `SUCCESS` / `TRANSIENT_FAILURE` / `PERMANENT_FAILURE` |
+| `detail`, `provider_ref` | TEXT | sanitised error; provider message id (for delivery receipts) |
+| `started_at`, `duration_ms` | TEXT / INTEGER | |
+
+Triggers refuse UPDATE and DELETE. Index `(alert_id, channel, attempt_id)` serves `GET /alerts/{id}/attempts`. See [docs/notifications](../notifications/README.md) §7.
+
+### `public_advisories` (migration 0002, Part 09)
+| Column | Type | Constraints / notes |
+|---|---|---|
+| `advisory_id` | INTEGER | PK |
+| `alert_id` | TEXT | FK → alerts; `UNIQUE (alert_id, channel)` so a resumed job cannot publish twice |
+| `channel` | TEXT | `government_portal` / `display_boards` |
+| `region_id` | TEXT | FK → regions |
+| `severity`, `title`, `body` | TEXT | rendered from the in_app template |
+| `published_at` | TEXT | index `(region_id, published_at)` serves `GET /advisories` |
 
 ## 3. Indexes
 

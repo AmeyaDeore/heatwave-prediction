@@ -19,11 +19,14 @@ from heatwave_api.alerts import summarize
 from heatwave_api.auth import User
 from heatwave_api.db.connection import connect, ds, now_ts, ts
 from heatwave_api.db.migrate import apply_migrations, migration_status
+from heatwave_api.notifications.service import Attempt
 from heatwave_api.schemas import (
+    AdvisoryOut,
     AlertOut,
     ChannelDelivery,
     FactorOut,
     ModelPerformance,
+    NotificationAttemptOut,
     PredictionOut,
     RegionOut,
 )
@@ -425,6 +428,108 @@ class SqliteRepository:
             "ORDER BY a.created_at DESC, a.alert_id DESC LIMIT ? OFFSET ?",
         )
         return page, total
+
+    # -- notifications (Part 09) --------------------------------------------------------
+
+    def update_delivery(self, alert_id: str, delivery: ChannelDelivery) -> None:
+        """One channel's outcome. Only status/detail/time change; the trigger keeps the
+        issued alert itself frozen, but its updated_at moves so pollers see progress."""
+        d = delivery
+        with self.db.tx() as c:
+            changed = c.execute(
+                """UPDATE alert_channel_deliveries SET status = ?, detail = ?, updated_at = ?
+                   WHERE alert_id = ? AND channel = ?""",
+                (d.status, d.detail, ts(d.updated_at), alert_id, d.channel),
+            ).rowcount
+            if changed != 1:
+                raise LookupError(f"No delivery row for {alert_id}/{d.channel}")
+            c.execute(
+                "UPDATE alerts SET updated_at = max(updated_at, ?) WHERE alert_id = ?",
+                (ts(d.updated_at), alert_id),
+            )
+
+    def alerts_with_pending_deliveries(self) -> list[str]:
+        return [
+            row[0]
+            for row in self.db.read(
+                """SELECT DISTINCT a.alert_id FROM alerts a
+                   JOIN alert_channel_deliveries d ON d.alert_id = a.alert_id
+                   WHERE a.status = 'ISSUED' AND d.status = 'PENDING'
+                   ORDER BY a.issued_at, a.alert_id"""
+            )
+        ]
+
+    def record_attempt(self, attempt: "Attempt") -> None:
+        a = attempt
+        with self.db.tx() as c:
+            c.execute(
+                """INSERT INTO notification_attempts (alert_id, channel, mechanism, provider,
+                       recipient, attempt, outcome, detail, provider_ref, started_at, duration_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    a.alert_id,
+                    a.channel,
+                    a.mechanism,
+                    a.provider,
+                    a.recipient,
+                    a.attempt,
+                    a.outcome,
+                    a.detail,
+                    a.provider_ref,
+                    ts(a.started_at),
+                    a.duration_ms,
+                ),
+            )
+
+    def list_attempts(self, alert_id: str) -> list[NotificationAttemptOut]:
+        rows = self.db.read(
+            """SELECT * FROM notification_attempts WHERE alert_id = ?
+               ORDER BY attempt_id""",
+            (alert_id,),
+        )
+        return [
+            NotificationAttemptOut(
+                **{k: r[k] for k in r.keys() if k not in ("attempt_id", "alert_id")}  # noqa: SIM118 (Row iterates values)
+            )
+            for r in rows
+        ]
+
+    def publish_advisory(self, advisory: AdvisoryOut) -> None:
+        """Idempotent per (alert, channel): a resumed job cannot publish twice."""
+        a = advisory
+        with self.db.tx() as c:
+            c.execute(
+                """INSERT INTO public_advisories (alert_id, channel, region_id, severity, title,
+                       body, published_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (alert_id, channel) DO NOTHING""",
+                (
+                    a.alert_id,
+                    a.channel,
+                    a.region_id,
+                    a.severity,
+                    a.title,
+                    a.body,
+                    ts(a.published_at),
+                ),
+            )
+
+    def list_advisories(
+        self, *, region_id: str | None, since: datetime | None, limit: int
+    ) -> list[AdvisoryOut]:
+        clauses, params = ["1 = 1"], []
+        if region_id is not None:
+            clauses.append("region_id = ?")
+            params.append(region_id)
+        if since is not None:
+            clauses.append("published_at >= ?")
+            params.append(ts(since))
+        rows = self.db.read(
+            f"""SELECT * FROM public_advisories WHERE {" AND ".join(clauses)}
+                ORDER BY published_at DESC, advisory_id DESC LIMIT ?""",
+            (*params, limit),
+        )
+        return [AdvisoryOut(**{k: r[k] for k in r.keys() if k != "advisory_id"}) for r in rows]  # noqa: SIM118
 
     def ping(self) -> bool:
         try:

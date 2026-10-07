@@ -59,13 +59,23 @@ class Settings(BaseSettings):
     demo_user_username: str = "official"
     demo_user_password: SecretStr = SecretStr("demo-official-local")
 
+    # Part 09, docs/notifications/README.md. mock = nothing leaves the process.
     notifications_mode: Literal["mock", "live"] = "mock"
-    email_provider: str = ""
+    # background = POST/PATCH returns with channels PENDING, a worker thread delivers and
+    # the UI polls GET /alerts/{id}; inline = deliver before responding (tests, debugging).
+    notifications_dispatch: Literal["background", "inline"] = "background"
+    notification_templates_file: Path = Path("config/notification_templates.yaml")
+    notification_recipients_file: Path = Path("config/notification_recipients.yaml")
+    notification_max_attempts: int = Field(3, ge=1, le=10)  # transient failures only
+    notification_backoff_seconds: float = Field(2.0, ge=0)  # doubles each retry
+    notification_timeout_seconds: float = Field(10.0, gt=0)  # per provider call
+    email_provider: Literal["", "sendgrid"] = ""
     email_api_key: SecretStr = SecretStr("")
     email_from_address: str = ""
-    sms_provider: str = ""
-    sms_api_key: SecretStr = SecretStr("")
-    sms_sender_id: str = ""
+    sms_provider: Literal["", "twilio"] = ""
+    sms_account_sid: str = ""
+    sms_api_key: SecretStr = SecretStr("")  # Twilio auth token
+    sms_sender_id: str = ""  # Twilio "From" number
 
     nasa_power_base_url: str = "https://power.larc.nasa.gov/api/temporal/daily/point"
 
@@ -86,6 +96,8 @@ class Settings(BaseSettings):
         "recommended_actions_file",
         "weather_features_file",
         "database_backup_dir",
+        "notification_templates_file",
+        "notification_recipients_file",
     )
     @classmethod
     def _resolve_from_repo_root(cls, value: Path) -> Path:

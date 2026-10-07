@@ -115,7 +115,7 @@ Conditions for one region, or for every monitored region when `region_id` is omi
 | `created_at`, `created_by`, `issued_at`, `updated_at` | `issued_at` is `null` until issued |
 | `idempotent_replay` | `true` only on a replayed create (below) |
 
-`GET /alerts/{alert_id}` returns one (404 if unknown). `GET /alert-channels` lists the five channels (`public_mobile`, `government_portal`, `display_boards`, `emergency_services`, `hospitals`), read from `config/alert_channels.yaml`.
+`GET /alerts/{alert_id}` returns one (404 if unknown). `GET /alert-channels` lists the five channels (`public_mobile`, `government_portal`, `display_boards`, `emergency_services`, `hospitals`) as `{id, label, mechanism}`, read from `config/alert_channels.yaml`. `mechanism` is `sms`, `email` or `in_app` (Part 09).
 
 ### `POST /api/v1/alerts` (protected)
 
@@ -142,7 +142,15 @@ DRAFT ──► READY ──► ISSUED        DRAFT ──► ISSUED is allowed 
 
 `ISSUED` is terminal and immutable: a change returns 409 `CONFLICT` ("Create a new alert instead"). Any other transition returns 409.
 
-**Issuing.** The alert is first saved as `ISSUED` with every channel `PENDING`, then each channel is dispatched through the notification service (`Notifier`, Part 09) and its result is stored. A crash mid-dispatch therefore leaves a truthful record, not one that looks unsent. **Partial failure is surfaced, never swallowed:** a channel that fails is stored as `FAILED` with a reason, the other channels still go out, and the response is still 201 (the alert exists and is issued) with `delivery_summary.failed > 0` and `all_delivered: false`. The frontend must show per-channel status, not only the HTTP status (Part 13). A notifier that raises is treated as that channel `FAILED`, with a generic reason.
+**Issuing.** The alert is first saved as `ISSUED` with every channel `PENDING`, then handed to the notification service (Part 09, [docs/notifications](../notifications/README.md)), which **delivers in the background**. The response therefore normally shows channels `PENDING`. Each channel's result is written back as it lands, and the alert's `updated_at` moves forward. **The frontend polls `GET /alerts/{id}` while `delivery_summary.pending > 0`** (Part 13). A crash mid-dispatch leaves a truthful record, and PENDING channels are resumed at the next startup. **Partial failure is surfaced, never swallowed:** a channel that fails is stored as `FAILED` with a reason (for example `1 of 2 email recipients failed: ...`), the other channels still go out, and the alert stays issued with `delivery_summary.failed > 0` and `all_delivered: false`. The frontend must show per-channel status, not only the HTTP status. A notifier that raises is treated as that channel `FAILED`, with a generic reason. With `NOTIFICATIONS_DISPATCH=inline` (tests), the response already carries the final statuses.
+
+### `GET /api/v1/alerts/{alert_id}/attempts` (protected)
+
+The delivery audit trail: one entry per attempt, `{channel, mechanism, provider, recipient, attempt, outcome: SUCCESS|TRANSIENT_FAILURE|PERMANENT_FAILURE, detail, provider_ref, started_at, duration_ms}`, oldest first. It is protected because it lists recipients. Returns 404 for an unknown alert.
+
+### `GET /api/v1/advisories?region_id=&since=&limit=20`
+
+Public advisories published by the `in_app` channels (Government Portal, Public Display Boards), newest first: `{alert_id, channel, region_id, severity, title, body, published_at}`. Portal and board clients poll this, using `since` to fetch only new ones. `limit` 1–100.
 
 **Idempotency.** Every create needs a client-generated `client_request_id`. The same id from the same user with the same content returns the original alert (200, `idempotent_replay: true`) and notifies nobody a second time. The same id with different content is a 409. A new id always creates a new alert: repeated identical alerts are never merged on content, because two genuine warnings can look identical.
 
@@ -214,7 +222,7 @@ Measured through the full ASGI stack (in-process test client, so no network) on 
 
 - **Persistence is SQLite (Part 08, resolved).** `SqliteRepository` implements the `Repository` protocol; predictions, alerts, deliveries and users survive restarts. `UNIQUE (created_by, client_request_id)` makes idempotency atomic. Schema, migrations and backups: [docs/database/README.md](../database/README.md). One API process only (SQLite's single writer).
 - **Users and roles are Part 15's.** Users are stored in the `users` table, but only the seeded local demo official exists. There is no refresh, revocation or region scoping.
-- **Notifications are mocked** (`MockNotifier`, logs only) until Part 09 supplies a real `Notifier`.
+- **Notifications run in mock mode by default** (Part 09): nothing is sent until `NOTIFICATIONS_MODE=live` with provider credentials. `NOTIFIED` means "accepted by the provider", because delivery-receipt webhooks are not consumed yet (docs/notifications §10).
 - **Rate limits are per process and per IP.** Behind several workers or a proxy, the limit multiplies or all clients share one IP. Deploying behind a proxy needs `X-Forwarded-For` handling (Part 18).
 - **Analytics history** comes from stored predictions until Part 14 reads `weather_snapshots` (§2).
 - There is no endpoint yet for "latest risk for every region" in one call: the dashboard can call `GET /weather` for conditions and `POST /predict` per region, or Part 11 may ask for a batch endpoint. The batch cost is known: ~0.34 s for 15 rows (Part 06).

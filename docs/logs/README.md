@@ -52,7 +52,8 @@ Add every new log to the index below.
 | [04-model-development-training.md](04-model-development-training.md) | 04 Model development & training | Complete | 2026-09-28/29 | `894364b` |
 | [05-model-evaluation-selection.md](05-model-evaluation-selection.md) | 05 Model evaluation & selection | Complete | 2026-09-29 | `fbdf161` `71dd36d` `e5ead11` |
 | [06-shap-explainability-integration.md](06-shap-explainability-integration.md) | 06 SHAP explainability integration | Complete | 2026-09-29 | `0d270d9` `c9b5de9` + artifact/docs commit |
-| [07-backend-api-architecture.md](07-backend-api-architecture.md) | 07 Backend API architecture | Complete, with persistence / notifications / users as seams for Parts 08, 09, 15 | 2026-09-29 | uncommitted on `part-07/backend-api` |
-| [08-database-design.md](08-database-design.md) | 08 Database design (SQLite) | Complete (Response Coordination panel handed to Part 13) | 2026-10-07 | uncommitted on `part-07/backend-api` |
+| [07-backend-api-architecture.md](07-backend-api-architecture.md) | 07 Backend API architecture | Complete, with persistence / notifications / users as seams for Parts 08, 09, 15 | 2026-09-29 | `5b44e1c` on `part-07/backend-api` |
+| [08-database-design.md](08-database-design.md) | 08 Database design (SQLite) | Complete (Response Coordination panel handed to Part 13) | 2026-10-07 | `5b44e1c` on `part-07/backend-api` |
+| [09-notification-service.md](09-notification-service.md) | 09 Notification service | Complete (delivery-receipt webhooks deferred to Parts 16/18) | 2026-10-07 | `part-07/backend-api` |
 
-**Running totals after Part 08:** 253 automated tests passing · production model `xgboost-20260928T100821Z-0bde51` · production explainer `xgboost-20260928T100821Z-0bde51+shap.2154641e` · schema version `0001` · persistence is SQLite (the in-memory blocker is gone) · next part: 09 (notification service).
+**Running totals after Part 09:** 289 automated tests passing · production model `xgboost-20260928T100821Z-0bde51` · production explainer `xgboost-20260928T100821Z-0bde51+shap.2154641e` · schema version `0002` · notifications: SendGrid/Twilio behind `NOTIFICATIONS_MODE` (mock default), background dispatch with polling · next part: 10 (frontend architecture & design system).

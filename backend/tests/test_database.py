@@ -86,12 +86,12 @@ def test_foreign_keys_are_enforced(conn):
         conn.execute("INSERT INTO user_regions (user_id, region_id) VALUES ('nobody', 'nowhere')")
 
 
-def test_first_migration_creates_every_table_and_is_applied_once(conn):
+def test_migrations_create_every_table_and_are_applied_once(conn):
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert names >= TABLES
     assert apply_migrations(conn) == []  # second run: nothing to do
     status = migration_status(conn)
-    assert status.current == 1 and status.pending == []
+    assert status.current == 2 and status.pending == []  # 0001 schema, 0002 notifications
 
 
 def test_planned_indexes_exist(conn):
@@ -287,7 +287,7 @@ def test_cli_migrate_status_seed_import_and_backup(file_settings, tmp_path, monk
     out = capsys.readouterr().out
     assert "regions upserted: 5" in out
     assert "inserted: 2, already present: 0" in out and "inserted: 0, already present: 2" in out
-    assert "version:  1" in out
+    assert "version:  2" in out
 
     backups = tmp_path / "backups"
     for _ in range(3):

@@ -7,9 +7,19 @@ tests that want no database at all; it loses everything on restart.
 
 import threading
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from heatwave_api.schemas import AlertOut, ModelPerformance, PredictionOut
+from heatwave_api.schemas import (
+    AdvisoryOut,
+    AlertOut,
+    ChannelDelivery,
+    ModelPerformance,
+    NotificationAttemptOut,
+    PredictionOut,
+)
+
+if TYPE_CHECKING:
+    from heatwave_api.notifications.service import Attempt
 
 
 class Repository(Protocol):
@@ -37,6 +47,21 @@ class Repository(Protocol):
         self, *, status: str | None, region_id: str | None, limit: int, offset: int
     ) -> tuple[list[AlertOut], int]: ...
 
+    # notification write-back and audit (Part 09)
+    def update_delivery(self, alert_id: str, delivery: ChannelDelivery) -> None: ...
+
+    def alerts_with_pending_deliveries(self) -> list[str]: ...
+
+    def record_attempt(self, attempt: "Attempt") -> None: ...
+
+    def list_attempts(self, alert_id: str) -> list[NotificationAttemptOut]: ...
+
+    def publish_advisory(self, advisory: AdvisoryOut) -> None: ...
+
+    def list_advisories(
+        self, *, region_id: str | None, since: datetime | None, limit: int
+    ) -> list[AdvisoryOut]: ...
+
     # model metadata (the version the service loaded, and its Part 05 metrics)
     def record_active_model(self, perf: ModelPerformance) -> None: ...
 
@@ -53,6 +78,8 @@ class MemoryRepository:
         self._requests: dict[tuple[str, str], str] = {}
         self._sequence: dict[int, int] = {}
         self._model: ModelPerformance | None = None
+        self._attempts: list[Attempt] = []
+        self._advisories: dict[tuple[str, str], AdvisoryOut] = {}
 
     def add_prediction(self, prediction: PredictionOut) -> None:
         with self._lock:
@@ -111,6 +138,56 @@ class MemoryRepository:
             ]
         found.sort(key=lambda a: a.created_at, reverse=True)
         return found[offset : offset + limit], len(found)
+
+    def update_delivery(self, alert_id: str, delivery: ChannelDelivery) -> None:
+        from heatwave_api.alerts import summarize
+
+        with self._lock:
+            alert = self._alerts[alert_id]
+            channels = [delivery if c.channel == delivery.channel else c for c in alert.channels]
+            self._alerts[alert_id] = alert.model_copy(
+                update={
+                    "channels": channels,
+                    "delivery_summary": summarize(channels),
+                    "updated_at": delivery.updated_at,
+                }
+            )
+
+    def alerts_with_pending_deliveries(self) -> list[str]:
+        with self._lock:
+            return [
+                a.alert_id
+                for a in self._alerts.values()
+                if a.status == "ISSUED" and any(c.status == "PENDING" for c in a.channels)
+            ]
+
+    def record_attempt(self, attempt: "Attempt") -> None:
+        with self._lock:
+            self._attempts.append(attempt)
+
+    def list_attempts(self, alert_id: str) -> list[NotificationAttemptOut]:
+        with self._lock:
+            return [
+                NotificationAttemptOut(**a.__dict__)
+                for a in self._attempts
+                if a.alert_id == alert_id
+            ]
+
+    def publish_advisory(self, advisory: AdvisoryOut) -> None:
+        with self._lock:
+            self._advisories.setdefault((advisory.alert_id, advisory.channel), advisory)
+
+    def list_advisories(
+        self, *, region_id: str | None, since: datetime | None, limit: int
+    ) -> list[AdvisoryOut]:
+        with self._lock:
+            found = [
+                a
+                for a in self._advisories.values()
+                if (region_id is None or a.region_id == region_id)
+                and (since is None or a.published_at >= since)
+            ]
+        return sorted(found, key=lambda a: a.published_at, reverse=True)[:limit]
 
     def record_active_model(self, perf: ModelPerformance) -> None:
         self._model = perf

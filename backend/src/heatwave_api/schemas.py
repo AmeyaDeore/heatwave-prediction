@@ -188,6 +188,34 @@ class AlertList(BaseModel):
 class ChannelOut(BaseModel):
     id: str
     label: str
+    mechanism: Literal["sms", "email", "in_app"]  # Part 09 delivery mechanism
+
+
+class AdvisoryOut(BaseModel):
+    """A published public advisory: what the portal and display boards show (Part 09)."""
+
+    alert_id: str
+    channel: str
+    region_id: str
+    severity: AlertSeverity
+    title: str
+    body: str
+    published_at: datetime
+
+
+class NotificationAttemptOut(BaseModel):
+    """One dispatch attempt from the audit trail (Part 09 §6)."""
+
+    channel: str
+    mechanism: str
+    provider: str
+    recipient: str | None
+    attempt: int
+    outcome: Literal["SUCCESS", "TRANSIENT_FAILURE", "PERMANENT_FAILURE"]
+    detail: str | None
+    provider_ref: str | None
+    started_at: datetime
+    duration_ms: int
 
 
 # -- analytics ------------------------------------------------------------------------

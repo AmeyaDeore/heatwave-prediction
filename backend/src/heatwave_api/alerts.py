@@ -4,9 +4,11 @@
       ◄────────┘
     ISSUED is terminal and immutable: a wrong warning is corrected by a new alert.
 
-Issuing dispatches every selected channel through the Notifier and records each result.
-A failed channel is stored as FAILED with its reason; the alert is still ISSUED (the
-decision to warn was made), and the response says which channels did not go out.
+Issuing stores every selected channel as PENDING, then hands the alert to the
+dispatcher (Part 09: background worker by default, inline for tests), which sends each
+channel through the Notifier and writes its result back. A failed channel is stored as
+FAILED with its reason; the alert is still ISSUED (the decision to warn was made), and
+GET /alerts/{id} says which channels did not go out.
 """
 
 import logging
@@ -15,6 +17,7 @@ from datetime import UTC, datetime
 
 from heatwave_api.catalog import Catalog
 from heatwave_api.errors import BadRequest, Conflict, NotFound, UnknownRegion
+from heatwave_api.notifications.dispatch import Dispatcher, make_dispatcher
 from heatwave_api.notifier import Notifier
 from heatwave_api.repositories import Repository
 from heatwave_api.schemas import (
@@ -53,8 +56,10 @@ class AlertService:
         catalog: Catalog,
         notifier: Notifier,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        dispatch_mode: str = "inline",
     ):
         self.repo, self.catalog, self.notifier, self.clock = repo, catalog, notifier, clock
+        self.dispatcher: Dispatcher = make_dispatcher(dispatch_mode, self.deliver)
 
     # -- helpers ----------------------------------------------------------------------
 
@@ -167,13 +172,25 @@ class AlertService:
 
     def _issue(self, alert: AlertOut) -> AlertOut:
         # Persist ISSUED with every channel PENDING *before* dispatching, so a crash
-        # mid-dispatch leaves a truthful record rather than an alert that looks unsent.
+        # mid-dispatch leaves a truthful record rather than an alert that looks unsent
+        # (and resume_pending() picks it up again on restart).
         pending = self._deliveries([c.channel for c in alert.channels], "PENDING")
         alert = self._with(alert, status="ISSUED", issued_at=self.clock(), channels=pending)
         self.repo.save_alert(alert)
+        self.dispatcher.submit(alert.alert_id)
+        # Inline: the final statuses. Background: whatever is done so far (usually PENDING).
+        return self.get(alert.alert_id)
 
-        results: list[ChannelDelivery] = []
+    def deliver(self, alert_id: str) -> None:
+        """The dispatch job: send every PENDING channel, writing each outcome as it lands.
+
+        Channels are independent: one failing (or the notifier raising) never stops the
+        rest. Each result is persisted immediately, so a poll shows progress.
+        """
+        alert = self.get(alert_id)
         for delivery in alert.channels:
+            if delivery.status != "PENDING":
+                continue  # already settled (e.g. a resumed job after a restart)
             try:
                 outcome = self.notifier.send(alert, delivery.channel)
                 status, detail = outcome.status, outcome.detail
@@ -185,14 +202,21 @@ class AlertService:
                     "channel delivery failed",
                     extra={"alert_id": alert.alert_id, "channel": delivery.channel},
                 )
-            results.append(
+            self.repo.update_delivery(
+                alert.alert_id,
                 delivery.model_copy(
                     update={"status": status, "detail": detail, "updated_at": self.clock()}
-                )
+                ),
             )
-        alert = self._with(alert, channels=results)
-        self.repo.save_alert(alert)
-        return alert
+
+    def resume_pending(self) -> list[str]:
+        """Queue every ISSUED alert that still has PENDING channels (startup recovery)."""
+        alert_ids = self.repo.alerts_with_pending_deliveries()
+        for alert_id in alert_ids:
+            self.dispatcher.submit(alert_id)
+        if alert_ids:
+            log.warning("resuming undelivered alerts", extra={"alert_ids": alert_ids})
+        return alert_ids
 
     def get(self, alert_id: str) -> AlertOut:
         alert = self.repo.get_alert(alert_id)

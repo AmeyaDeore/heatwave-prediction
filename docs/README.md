@@ -15,6 +15,7 @@
 | [ml/explainability.md](ml/explainability.md) | Part 06: SHAP explainer, the per-prediction explanation contract, frozen background, label table, validation (additivity + sanity cases), versioning, handoff to Part 07 |
 | [api/README.md](api/README.md) | Part 07: the `/api/v1` contract (envelope, errors, auth, every endpoint), weather-source decision, model lifecycle, limits, handoff to Parts 08-10 |
 | [database/README.md](database/README.md) | Part 08: SQLite schema (tables, constraints, ER diagram), indexes, UI cross-check, retention and backups, migrations, PostgreSQL path |
+| [notifications/README.md](notifications/README.md) | Part 09: channel → mechanism mapping, SendGrid/Twilio/mock providers, templates and the SMS length rule, recipients, dispatch flow, retry policy, audit trail, background dispatch + polling |
 | [logs/](logs/) | Detailed implementation log per completed part / major change (what was built, decisions, verification, open items). **Update after every major change.** |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Branching, commit and PR conventions |
 | [../Implementation/](../Implementation/) | The 18-part implementation plan set (start with `00-README-master-plan.md`) |

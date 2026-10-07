@@ -23,10 +23,21 @@ class RegionInfo:
     lon: float
 
 
+MECHANISMS = ("sms", "email", "in_app")
+
+
 @dataclass(frozen=True)
 class Channel:
     id: str
     label: str
+    mechanism: str  # how Part 09 delivers it: sms | email | in_app
+
+    def __post_init__(self):
+        if self.mechanism not in MECHANISMS:
+            raise ValueError(
+                f"alert_channels.yaml: channel '{self.id}' has mechanism "
+                f"'{self.mechanism}', expected one of {MECHANISMS}"
+            )
 
 
 @dataclass(frozen=True)

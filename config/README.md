@@ -8,7 +8,9 @@ Non-secret configuration that more than one part of the system reads. Each value
 | `regions.yaml` | ml (ingestion), backend (upserted into the `regions` table at startup, Part 08) | `MONITORED_REGIONS_FILE` |
 | `seasonal_normals.csv` | ml (features, labels, synthetic generator), backend (live features, Part 07) | `SEASONAL_NORMALS_FILE` |
 | `model_selection.yaml` | ml (evaluation, Part 05; explainer latency budget, Part 06) | `MODEL_SELECTION_POLICY` |
-| `alert_channels.yaml` | backend (alert channel ids and labels, Part 07; delivery, Part 09) | `ALERT_CHANNELS_FILE` |
+| `alert_channels.yaml` | backend (alert channel ids and labels, Part 07; delivery `mechanism` sms/email/in_app, Part 09) | `ALERT_CHANNELS_FILE` |
+| `notification_templates.yaml` | backend (message wording per mechanism, SMS length rule, Part 09) | `NOTIFICATION_TEMPLATES_FILE` |
+| `notification_recipients.yaml` | backend (distribution lists per channel and region, Part 09). **Development list only**: `.invalid` addresses and Twilio test numbers. Deployments point the env var at their own, uncommitted file | `NOTIFICATION_RECIPIENTS_FILE` |
 | `recommended_actions.yaml` | backend (risk class + top factors → authority actions, Part 07) | `RECOMMENDED_ACTIONS_FILE` |
 | `feature_labels.json` | ml (`features/schema.py`, explanations), backend (Part 07), frontend (Parts 10–14) | none: fixed path, imported directly |
 

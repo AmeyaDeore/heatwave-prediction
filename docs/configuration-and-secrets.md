@@ -35,9 +35,11 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 | `RATE_LIMIT_PREDICT_PER_MINUTE`, `RATE_LIMIT_ALERTS_PER_MINUTE`, `RATE_LIMIT_LOGIN_PER_MINUTE` | backend | no | 07 |
 | `DEMO_USER_USERNAME`, `DEMO_USER_PASSWORD` | backend (`local`/`test` only) | **yes** if ever reused; never set in staging or production | 07 |
 | `AUTH_SECRET_KEY`, `AUTH_TOKEN_TTL_MINUTES` | backend | **yes** (key). Startup refuses the local default outside `local`/`test` | 07/15 |
-| `NOTIFICATIONS_MODE` | backend | no | 09 |
+| `NOTIFICATIONS_MODE`, `NOTIFICATIONS_DISPATCH` | backend | no. `live` refuses to start with missing credentials, and always with `APP_ENV=test` | 09 |
+| `NOTIFICATION_TEMPLATES_FILE`, `NOTIFICATION_MAX_ATTEMPTS`, `NOTIFICATION_BACKOFF_SECONDS`, `NOTIFICATION_TIMEOUT_SECONDS` | backend | no | 09 |
+| `NOTIFICATION_RECIPIENTS_FILE` | backend | personal data (officials' numbers): a per-environment file, never committed. The committed default is a test-only list | 09 |
 | `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS` | backend | **yes** (key) | 09 |
-| `SMS_PROVIDER`, `SMS_API_KEY`, `SMS_SENDER_ID` | backend | **yes** (key) | 09 |
+| `SMS_PROVIDER`, `SMS_ACCOUNT_SID`, `SMS_API_KEY`, `SMS_SENDER_ID` | backend | **yes** (`SMS_API_KEY` = Twilio auth token) | 09 |
 | `NASA_POWER_BASE_URL` | backend, ml | no (public API) | 02 |
 | `RAW_DATA_DIR`, `PROCESSED_DATA_DIR`, `SAMPLE_DATA_DIR` | ml | no | 02/03 |
 | `MONITORED_REGIONS_FILE` | ml | no | 02 |
@@ -55,8 +57,8 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 
 | Secret | Owner | Where issued |
 |--------|-------|--------------|
-| Email provider API key | Backend lead (Person B) | Provider dashboard (chosen in Part 09) |
-| SMS provider API key | Backend lead (Person B) | Provider dashboard (chosen in Part 09) |
+| Email provider API key | Backend lead (Person B) | SendGrid dashboard → Settings → API Keys (Mail Send scope only) |
+| SMS provider auth token | Backend lead (Person B) | Twilio console → Account → API keys & tokens |
 | `AUTH_SECRET_KEY` | Backend lead (Person B) | Generated locally per environment |
 | Weather data access | Data/ML lead (Person A) | NASA POWER needs no key. IMD data access, if credentialed, belongs to Person A |
 

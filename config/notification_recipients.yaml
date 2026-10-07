@@ -1,0 +1,20 @@
+# Who receives each external channel, per region (Part 09 §5 step 2).
+# Selected by NOTIFICATION_RECIPIENTS_FILE, so each environment has its own list.
+#
+# THIS FILE IS THE DEVELOPMENT LIST. Every address is on the reserved .invalid domain and
+# every number is a Twilio magic test number, so even NOTIFICATIONS_MODE=live from a
+# laptop cannot reach a real person. A deployment points NOTIFICATION_RECIPIENTS_FILE at
+# its own file (kept out of git: it holds officials' phone numbers).
+#
+# Lookup: `regions.<region_id>` if present, else `default`. A channel with no recipients
+# for a region fails that delivery as FAILED ("no recipients configured"), never silently.
+# in_app channels need no entry: they publish an advisory instead.
+channels:
+  public_mobile:
+    default: ["+15005550006"]
+  emergency_services:
+    default: ["+15005550006"]
+  hospitals:
+    default: ["health-desk@example.invalid"]
+    regions:
+      mumbai: ["kem-hospital@example.invalid", "bmc-health@example.invalid"]

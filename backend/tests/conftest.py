@@ -16,7 +16,14 @@ def _never_the_real_database(monkeypatch):
 
 @pytest.fixture
 def settings():
-    return Settings(app_env="test", database_url="sqlite:///:memory:", _env_file=None)
+    # inline dispatch: responses carry final delivery statuses, so assertions are exact.
+    # test_notifications.py covers the background worker.
+    return Settings(
+        app_env="test",
+        database_url="sqlite:///:memory:",
+        notifications_dispatch="inline",
+        _env_file=None,
+    )
 
 
 @pytest.fixture

@@ -38,7 +38,7 @@ cp frontend/.env.example frontend/.env.local
 
 PowerShell: `Copy-Item backend/.env.example backend/.env` (and likewise for the others).
 
-The defaults work locally as they are. SQLite writes to `data/local/heatwave.db`, notifications run in `mock` mode, and NASA POWER needs no API key. For anything beyond your own machine, generate a real `AUTH_SECRET_KEY`.
+The defaults work locally as they are. SQLite writes to `data/local/heatwave.db`, notifications run in `mock` mode (logged, never sent; recipients ending `.fail`/`.retry` simulate provider failures, docs/notifications §2), and NASA POWER needs no API key. For anything beyond your own machine, generate a real `AUTH_SECRET_KEY`.
 
 ## 5. Data
 

@@ -32,6 +32,8 @@ TABLES = (
     "prediction_factors",
     "alerts",
     "alert_channel_deliveries",
+    "notification_attempts",
+    "public_advisories",
 )
 
 

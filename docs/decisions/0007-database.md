@@ -33,7 +33,7 @@
 
 ## Consequences
 
-- Part 09's notifier results land in `alert_channel_deliveries` through the existing `AlertService` path; no new write code needed.
+- Part 09's notifier results land in `alert_channel_deliveries` through `AlertService`. *(Update, Part 09: a per-channel `update_delivery` write was added for background dispatch, plus migration `0002` for the audit trail and advisories; see [ADR 0008](0008-notification-service.md).)*
 - Part 13 must decide the Response Coordination panel: channel ids in `config/alert_channels.yaml` (no schema change) or a new table (migration `0002`).
 - Part 14 can read `weather_snapshots` (`heatwave-db import-weather … --kind HISTORICAL`) for history beyond stored predictions.
 - Part 15 adds user management on `users` / `user_regions` and decides role semantics (`viewer`/`official`/`admin` is the current CHECK; widening it is a migration).
