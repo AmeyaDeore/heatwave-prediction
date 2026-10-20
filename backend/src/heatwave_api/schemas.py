@@ -35,6 +35,10 @@ class RegionOut(BaseModel):
     zone: str
     lat: float
     lon: float
+    # Revision 2 (Part 02 R2.2), additive: older clients ignore them.
+    division: str | None = None
+    kind: Literal["city", "area"] = "city"
+    parent: str | None = None
 
 
 class WeatherProvenance(BaseModel):
@@ -64,6 +68,16 @@ class WeatherOut(BaseModel):
 class PredictRequest(Strict):
     region_id: RegionId
     lead_days: int = Field(0, ge=0, le=3, description="0 = today, 1-3 = the next three days")
+
+
+MAX_BATCH_ITEMS = 100  # 25 places x 4 leads; one SHAP call either way
+
+
+class PredictBatchRequest(Strict):
+    """Several places/leads scored in one model + SHAP call (Part 07 §A). All or nothing:
+    an unknown region or missing weather for any item fails the whole batch."""
+
+    items: list[PredictRequest] = Field(min_length=1, max_length=MAX_BATCH_ITEMS)
 
 
 class ForecastWindow(BaseModel):

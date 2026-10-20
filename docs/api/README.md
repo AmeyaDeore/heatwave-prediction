@@ -51,6 +51,8 @@ A per-client-IP sliding window, per minute: `POST /predict` **30**, `POST`/`PATC
 
 `POST /auth/login` returns a bearer token. Send it as `Authorization: Bearer <token>`. Tokens are HMAC-SHA256 signed with `AUTH_SECRET_KEY` and expire after `AUTH_TOKEN_TTL_MINUTES` (60). Missing, invalid or expired tokens return 401 `UNAUTHORIZED`. Part 15 extends this (real users, roles, region scoping).
 
+**Revision 2 (Part 15 R2, step 5): the Node.js API requires login for every data endpoint.** It is now what the frontend calls. Matrix there: open = `POST /auth/login`, `GET /health`, `GET /health/ready` (and the public advisory feed, step 8); **everything else needs a valid, unrevoked token**, and `POST /auth/logout` revokes it. Tokens are JWT HS256 (`JWT_SECRET`), 60 min, no silent refresh; same `TokenOut`/`UserOut` shapes as below. Passwords are bcrypt-hashed in MongoDB `users`; 10 logins/min per IP plus a 15-minute lock on a username after 10 consecutive failures (counted for unknown names too). The table below is the FastAPI `app` role's original matrix, kept for reference:
+
 | Endpoint | Auth |
 |---|---|
 | `GET` everything, `POST /predict` | none (read model; the dashboard is a monitoring view) |
@@ -88,13 +90,21 @@ Response `data` (`PredictionOut`). The `explanation` object is Part 06's contrac
 
 Errors: 404 `UNKNOWN_REGION`; 422 bad body; 429; 503 `WEATHER_DATA_UNAVAILABLE` (no file, malformed file, or no row for this region and day); 500 `PREDICTION_FAILED` (the model could not score the row); 503 `MODEL_UNAVAILABLE` cannot occur at request time, because startup fails first (§5).
 
+### `POST /api/v1/predict/batch` (Revision 2)
+
+Several region/lead pairs in one model + SHAP call: `{"items": [{"region_id", "lead_days"}, …]}`, 1–100 items, strict like `/predict`. `data` is a list of `PredictionOut` **in request order**. Each item equals what `/predict` returns for it alone (checked on the real model for all 20 region × lead pairs). **All or nothing:** an unknown region (404 `UNKNOWN_REGION`) or a missing reading (503 `WEATHER_DATA_UNAVAILABLE`) fails the whole batch before anything is scored. It counts once against the predict rate limit. In role `app` every item is stored, as with `/predict`. It is used by the Node.js API's batch scoring (Part 07 §B, Part 11 R2).
+
+### `GET /api/v1/model` (Revision 2)
+
+The loaded production model's metadata: the `model_performance` object that `/analytics` already returns (version, family, explainer id, labelling rule, held-out test metrics, calibration). It is static per model version. The Node.js API records it in MongoDB (Part 08 R2).
+
 ### `GET /api/v1/predictions/latest?region_id=&lead_days=0`
 
 The most recent **stored** prediction for a region and lead, with no recomputation. This is what Part 12's "show the latest persisted prediction by default" reads. 404 `NOT_FOUND` if none was made yet. `GET /predictions/{prediction_id}` returns one by id.
 
 ### `GET /api/v1/weather?region_id=&lead_days=0`
 
-Conditions for one region, or for every monitored region when `region_id` is omitted (the dashboard and its regional table). Each item: `region`, `date`, `lead_days`, `tmax_c`, `normal_tmax_c`, `temp_deviation_c`, `rh_pct`, `wind_ms`, `solar_mj_m2`, `precip_mm`, and `provenance` (`{source, issued_at, age_hours, stale}`). The normal and the deviation come from the shared feature path (`heatwave_ml.features`), not from this service. Errors: 404, 422, 503 `WEATHER_DATA_UNAVAILABLE`.
+Conditions for one region, or for every monitored region when `region_id` is omitted (the dashboard and its regional table). Each item: `region`, `date`, `lead_days`, `tmax_c`, `normal_tmax_c`, `temp_deviation_c`, `rh_pct`, `wind_ms`, `solar_mj_m2`, `precip_mm`, and `provenance` (`{source, issued_at, age_hours, stale}`). The normal and the deviation come from the shared feature path (`heatwave_ml.features`), not from this service. Errors: 404, 422, 503 `WEATHER_DATA_UNAVAILABLE`. *(Fixed in Revision 2 step 4: without `region_id`, `lead_days` used to be ignored, so every region came back at lead 0. It now returns every region at the requested lead and leaves out a region with no row for it; lead 0 is unchanged.)*
 
 ### `GET /api/v1/alerts?status=&region_id=&limit=25&offset=0`
 
@@ -175,9 +185,13 @@ Public advisories published by the `in_app` channels (Government Portal, Public 
 
 Login takes `{username, password}` and returns `{access_token, token_type: "bearer", expires_at, user}`. A wrong password and an unknown user give the same 401 message and take the same time. Locally, APP_ENV `local` or `test` seeds one demo official (`DEMO_USER_USERNAME` / `DEMO_USER_PASSWORD`, defaults in `backend/.env.example`). **No user exists in `staging` or `production`** until Part 15 adds them.
 
+### Service roles (Revision 2, Part 07 §A)
+
+`SERVICE_ROLE=app` (default) is everything on this page, unchanged. `SERVICE_ROLE=ml` turns the service into the **internal ML inference service** that the Node.js API (`server/`) calls. It mounts only `POST /predict`, `POST /predict/batch`, `GET /weather`, `GET /regions`, `GET /model`, `GET /health/ready` and `GET /health`, and every other route is a 404. It has no database (predictions are not stored), no users or tokens, no alerts or notifications, no CORS and no rate limit (the Node.js API applies the public limits). Readiness counts the model and weather only. When `ML_SERVICE_TOKEN` is set to a real value, every request except `/health` needs `X-Service-Token`, or it gets a 401 `UNAUTHORIZED`. Outside local/test the placeholder, or a token under 32 characters, stops startup.
+
 ### Reference and health
 
-`GET /api/v1/regions` (from `config/regions.yaml`), `GET /api/v1/alert-channels`.
+`GET /api/v1/regions` (from `config/regions.yaml`), `GET /api/v1/alert-channels`. Each region also carries, additively (Revision 2), `division` (Maharashtra division or `null`), `kind` (`city` or `area`, default `city`) and `parent` (an area's city, otherwise `null`). An area must name a city in the same file; a typo in a key still stops startup.
 `GET /health` is liveness: the process is up. `GET /api/v1/health/ready` is readiness: `{ready, model_version, explainer_id, weather_data: ok|stale|unavailable, weather_issued_at}`, with status **503** when not ready, so a probe can act on the status code alone.
 
 ## 3. Recommended actions (deterministic mapping)
@@ -225,7 +239,7 @@ Measured through the full ASGI stack (in-process test client, so no network) on 
 - **Notifications run in mock mode by default** (Part 09): nothing is sent until `NOTIFICATIONS_MODE=live` with provider credentials. `NOTIFIED` means "accepted by the provider", because delivery-receipt webhooks are not consumed yet (docs/notifications §10).
 - **Rate limits are per process and per IP.** Behind several workers or a proxy, the limit multiplies or all clients share one IP. Deploying behind a proxy needs `X-Forwarded-For` handling (Part 18).
 - **Analytics history** comes from stored predictions until Part 14 reads `weather_snapshots` (§2).
-- There is no endpoint yet for "latest risk for every region" in one call: the dashboard can call `GET /weather` for conditions and `POST /predict` per region, or Part 11 may ask for a batch endpoint. The batch cost is known: ~0.34 s for 15 rows (Part 06).
+- "Latest risk for every region" in one call: **scoring** many regions at once is now `POST /predict/batch` (Revision 2; 20 rows in about 0.16 s on the dev Mac). **Reading** the latest stored prediction for every region in one call is the Node.js API's `GET /predictions/latest-by-region` (Part 07 §B, Revision 2 step 4), not built yet.
 
 ## 9. Handoff (Part 07 plan §9)
 

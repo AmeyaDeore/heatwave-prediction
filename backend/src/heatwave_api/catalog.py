@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from heatwave_api.config import Settings
+from heatwave_ml.ingestion.regions import validate_hierarchy
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,10 @@ class RegionInfo:
     zone: str
     lat: float
     lon: float
+    # Revision 2 (Part 02 R2.2), optional: Maharashtra division, city/area, an area's city.
+    division: str | None = None
+    kind: str = "city"
+    parent: str | None = None
 
 
 MECHANISMS = ("sms", "email", "in_app")
@@ -78,6 +83,7 @@ class Catalog:
     def load(cls, settings: Settings) -> "Catalog":
         classes = tuple(_yaml(settings.risk_config_path)["classes"])
         regions = [RegionInfo(**r) for r in _yaml(settings.monitored_regions_file)["regions"]]
+        validate_hierarchy(regions)  # the same rule ingestion applies (heatwave_ml)
         channels = [Channel(**c) for c in _yaml(settings.alert_channels_file)["channels"]]
         actions = _yaml(settings.recommended_actions_file)
         rules = []

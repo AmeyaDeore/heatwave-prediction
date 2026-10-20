@@ -7,6 +7,7 @@ data/       datasets (raw/processed git-ignored; sample/ committed)
 ml/         ingestion, preprocessing, training, evaluation, SHAP        (Parts 02–06)
 backend/    FastAPI service + SQLite                                     (Parts 07–09, 15)
 frontend/   web dashboard                                                (Parts 10–14)
+server/     Node.js + Express application API on MongoDB                 (Revision 2; skeleton)
 config/     shared non-secret config (risk classes, regions)
 docs/       runbook, config/secrets guide, decision records
 deploy/     deployment manifests                                         (Part 18)

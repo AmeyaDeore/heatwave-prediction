@@ -21,6 +21,8 @@ htmlcov/
 # --- Node / frontend ---
 node_modules/
 frontend/dist/
+server/dist/
+coverage/
 npm-debug.log*
 
 # --- Data: large/raw files stay out of git; only data/sample/ is committed ---
@@ -39,6 +41,9 @@ ml/artifacts/*
 *.db
 *.sqlite
 *.sqlite3
+
+# --- Local tooling output (browser-test screenshots/logs) ---
+.playwright-mcp/
 
 # --- Editors / OS ---
 .idea/

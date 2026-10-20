@@ -4,6 +4,8 @@
 **Feeds into:** 07 (backend API — exposes this per prediction)
 **Owner persona:** ML engineer
 
+> **Revision 2 (2026-10-20, examiner feedback):** the explainer is rebuilt for the newly promoted model. The output contract is unchanged, and the sanity cases gain an inland example. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Integrate SHAP (SHapley Additive exPlanations) into the inference path so that every prediction the system produces is accompanied by a ranked list of the meteorological factors that drove it, with signed contribution values — this is the core differentiator the project brief describes ("the gap between receiving a warning and understanding why").
@@ -64,3 +66,17 @@ For a single prediction, the explanation output must contain, at minimum:
 > Explainer artifact at: <path>, built against production model version <id>. Output contract: <link/summary>. Feature label mapping at: <path>. Per-request latency: <measured value>. Part 07 can now wire this into the prediction endpoint.
 
 **Filled in:** see §9 of [`docs/ml/explainability.md`](../docs/ml/explainability.md).
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** ⏳ **Not started** (step 10).
+
+- **Rebuild** with `heatwave-explain build` for the v2 production model. The ML service refuses a stale explainer, so this is enforced, not optional.
+- **Background set** drawn from the v2 training split as before (100 seeded rows). The builder already refuses any other dataset.
+- **Sanity cases** gain a plains-zone example (for example a Vidarbha May day at about 46 °C with a large departure → SEVERE, driven by temperature) and an inland humid-day example, alongside the existing six.
+- **Output contract unchanged**, so the Node API, the dashboard's "Why this prediction?" panel and the Prediction page need no change.
+
+### R2 acceptance criteria
+- [ ] Explainer rebuilt for the v2 model and committed under `ml/registry/explainers/<v2 model version>/`.
+- [ ] Additivity check passes on all v2 validation rows; the new inland sanity cases pass.
+- [ ] Latency re-benchmarked; still within the 500 ms per-request budget.

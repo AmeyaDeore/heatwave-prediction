@@ -64,3 +64,35 @@ The IMD host failed TLS handshakes on some attempts and served files on others (
 ## 4. Handoff note (Part 02 → Part 03)
 
 > Raw data available at: `data/raw/<source>/<chunk key>/<run_id>.parquet`, read with `RawLandingZone(...).read_latest(source)`. Contract: `docs/data/raw-landing-zone.md`. Sources implemented: IMD gridded Tmax (HTTP + manual inbox), NASA POWER (historical + recent), Open-Meteo forecast, synthetic (placeholder generator; Part 03 supplies the real one via `SyntheticAdapter(generator=...)`). Known field gaps: seasonal normal must be derived (§2.1); Tmax sources must not be mixed (§2.2); sub-city regions are indistinguishable in real history (§2.3); wind 2 m vs 10 m (§2.4); recent observations lag 2–4 days (§2.5). Location list config lives at: `config/regions.yaml`. Part 03 can now build preprocessing against this raw shape.
+
+## 5. Revision 2: Maharashtra places (measured 2026-10-20)
+
+Monitoring now covers **our proposed selection** of 18 Maharashtra places (14 cities across the six divisions plus the four original Mumbai areas; `config/regions.yaml`). **It is not an examiner-specified list.** All data below was pulled from the live sources on 2026-10-20 on the development Mac; nothing was synthesised or filled in.
+
+| Source | Coverage landed | Result | Gaps |
+|---|---|---|---|
+| IMD gridded Tmax (1°) | 1991-01-01 → 2024-12-31, 18 places | 34/34 years, 223,542 rows (run `20261020T144441.893152Z-8d481b`) | **0 nulls** |
+| NASA POWER | 2000-01-01 → 2024-12-31, 18 places | 450/450 place-year chunks, 164,376 rows (one connection reset, retried automatically) | **0 nulls** |
+| Open-Meteo forecast | today + 3 days, 18 places | 18/18 places, 72 rows, issued 2026-10-20 | none |
+
+**Which IMD cell each place uses** (nearest 1° cell with data; distance from the place's centroid). This matters for the analysis: places that share a cell have **the same observed history and the same normal**, and must not be read as independent evidence (Part 14 R2 honesty rule).
+
+| IMD cell (lat, lon) | Places | Distance |
+|---|---|---|
+| 19.5, 72.5 | **Andheri, Dharavi, Kurla, Thane** (shared) | 57.9 – 63.4 km |
+| 18.5, 72.5 | **Mumbai, Colaba** (shared) | 56.1 – 63.0 km |
+| 20.5, 77.5 | **Akola, Amravati** (shared) | 55.8 – 56.7 km |
+| 16.5, 73.5 | Ratnagiri | 58.1 km |
+| 16.5, 74.5 | Kolhapur | 35.6 km |
+| 17.5, 75.5 | Solapur | 46.6 km |
+| 18.5, 73.5 | Pune | 37.7 km |
+| 19.5, 73.5 | Nashik | 63.1 km |
+| 19.5, 75.5 | Chhatrapati Sambhajinagar | 44.9 km |
+| 19.5, 77.5 | Nanded | 44.4 km |
+| 19.5, 79.5 | Chandrapur | 55.6 km |
+| 21.5, 75.5 | Jalgaon | 55.1 km |
+| 21.5, 79.5 | Nagpur | 58.1 km |
+
+So the 18 places give **13 distinct observed IMD series**. The coastal points' nearest cells over land are ~60 km away (the nearer cells are sea), as §2.3 already found for Mumbai. NASA POWER (~0.5°) and Open-Meteo (~0.1°) resolve the places more finely. Open-Meteo still distinguishes the Mumbai areas, but Thane and the three suburban areas share a forecast cell today (35.9 °C each).
+
+**Observed real history** (`heatwave-prepare observed`, IMD Tmax with NASA POWER context, 2000–2024, labelled by `IMD-HW-DAILY-v1` in Python): 164,376 place-days, of which **265 HEATWAVE and 5 SEVERE_HEATWAVE**; maximum Tmax 46.87 °C, maximum departure 7.09 °C. This is the real-data basis for Part 14 R2's analysis.

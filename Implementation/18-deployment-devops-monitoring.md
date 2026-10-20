@@ -4,6 +4,8 @@
 **Feeds into:** nothing further — this is the final part of the sequence, and feeds back into ongoing operation of the live system
 **Owner persona:** Backend engineer / whoever owns infrastructure
 
+> **Revision 2 (2026-10-20, examiner feedback):** three deployable services (React static build, Node.js API, internal FastAPI ML service) plus MongoDB per environment, replacing the single FastAPI + SQLite file. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Define how the system (ML artifacts, backend, database, frontend, notification integrations) moves from a working local/integration setup to a reliably running deployed environment, and how it is observed and maintained once live.
@@ -67,3 +69,35 @@ Each environment's configuration values (database path, API keys, allowed CORS o
 ## 10. Handoff note template
 
 > Production deployment location: <details>. CI/CD pipeline at: <path/link>. Monitoring dashboard/alerts at: <link>. Rollback drill last performed: <date, outcome>. This concludes the initial implementation plan sequence — ongoing operation should reference Sections 5–7 of this file.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** ⏳ **Not started** (step 11).
+
+### R2.1 Deployment architecture
+| Component | Deployment | Notes |
+|---|---|---|
+| Frontend | static build served by the Node API (simplest at this scale) or any static host | `VITE_API_BASE_URL` per environment |
+| Node.js API (`server/`) | one container / process | the only public backend; HTTPS terminated in front of it |
+| ML service (`backend/`, `SERVICE_ROLE=ml`) | one container on the internal network only | loads the production model + explainer at startup (§3, unchanged); the bundle is shipped as a release artifact built on the designated training platform (Part 04 R2) |
+| MongoDB | managed (for example Atlas free/shared tier) or self-hosted with auth + TLS | **one database per environment**; local uses the Part 01 R2 setup |
+
+A compose file for local and staging runs all four together. Production may use the same file on a single small host, which is proportionate to scale.
+
+### R2.2 Environments and secrets
+New secrets per environment: `MONGODB_URI`, `JWT_SECRET`, `ML_SERVICE_TOKEN` and the provider keys (now read by the Node API). They are isolated per environment (§2). Staging uses sandbox providers, never production credentials.
+
+### R2.3 CI/CD
+Pre-merge adds server lint, typecheck and tests, and the frontend build. Merge to main adds the E2E suite against the composed stack. Model promotion stays a separate, deliberate event (§4), and the ML service image references the promoted bundle by SHA-256.
+
+### R2.4 Backups, rollback, monitoring
+- MongoDB: scheduled `mongodump` with retention, plus a **tested restore** (§7), replacing the SQLite file copy. Migrations: back up before applying (§5).
+- Rollback: previous Node API and ML service images; the model rollback procedure is unchanged.
+- Monitoring adds MongoDB availability, ML service readiness as seen from the Node API, login failures and lockouts (Part 15 R2), suggestion and issue counts, and delivery failure rates per channel from `notification_attempts`.
+
+### R2 acceptance criteria
+- [ ] Compose definition for the four components; a clean-checkout deployment works from this document alone.
+- [ ] ML service unreachable from outside; Node API is the only public backend.
+- [ ] Per-environment MongoDB with auth and TLS outside local; backup and restore tested once.
+- [ ] CI runs Python, server, frontend and E2E suites as specified.
+- [ ] Monitoring additions in R2.4 in place with a named alert recipient.

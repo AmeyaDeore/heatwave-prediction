@@ -4,6 +4,8 @@
 **Feeds into:** 07 (backend API), 09 (notifications), 14 (analytics), 16 (integration)
 **Owner persona:** Backend engineer
 
+> **Revision 2 (2026-10-20, examiner feedback, M2):** **MongoDB** becomes the application database, used by the Node.js API (Part 07 §B). The entities, relationships, query patterns, retention and backup rules below carry over. The SQLite schema built in this part is kept as the reference model the MongoDB design is ported from, and is no longer the application store. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Design a relational schema in SQLite (per the architecture diagram) that supports predictions, alerts, weather snapshots, regions, users, and notification delivery tracking — structured so it could migrate to a server-based relational database later without a redesign.
@@ -90,3 +92,61 @@ Design a relational schema in SQLite (per the architecture diagram) that support
 **Also produced:** `SqliteRepository` / `SqliteUserStore` wired into the API (persistence is no longer in memory), append-only and issued-alert triggers, `UNIQUE (created_by, client_request_id)`, `model_metadata` read by analytics, `heatwave-db` CLI (`migrate`, `status`, `seed`, `backup`, `import-weather`), ADR 0007 and log 08.
 
 **Filled-in handoff:** Schema migrations at `backend/src/heatwave_api/db/migrations/`. Entity-relationship summary: [`docs/database/README.md`](../docs/database/README.md) §1. Database file location (per environment): `DATABASE_URL` (local `sqlite:///data/local/heatwave.db`, tests `sqlite:///:memory:`, deployed: a persistent volume, Part 18). Part 07's data access already runs against this schema.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** 🟡 **In progress.** ✅ Step 4 built (uncommitted): migrations runner, the `places`, `predictions`, `weather_snapshots` and `model_metadata` collections with validators and indexes, on the developer's MongoDB 7.0.31 in its own `heatwave_local` database. **Also built in step 4 (SQLite, the role-`app` reference):** migration `0003` adds the region hierarchy columns, so predictions keep round-tripping exactly. ⏳ The users, alerts and history collections (steps 5, 8, 9) and backup/restore (step 11) are pending.
+
+**Why:** MongoDB integration is mandatory (M2) and the application stack is MERN. The entity model in §2–§3 was designed engine-neutral, so it maps onto collections without changing what the UI or API can show.
+
+### R2.1 Collections (ported from §2)
+
+| SQLite table(s) | MongoDB collection | Shape decision and why |
+|---|---|---|
+| `regions` | `places` | Seeded/upserted from `config/regions.yaml` at startup, as today. Adds `division`, `kind`, `parent` (Part 02 R2). Coordinates stay plain `lat`/`lon`: nothing queries by location, so no geo index is needed |
+| `weather_snapshots` | `weather_snapshots` | One document per place × valid date × lead × source (`forecast` or `observed`), written when the API fetches conditions and by the observed-history import (Part 14 R2.1). Observed rows carry the class computed in Python, the rule version and the IMD cell |
+| *(new)* | `history_summaries` | Per place × year (and × month) aggregates of the observed history: heatwave and severe days, longest spell, maximum Tmax and departure. Precomputed at import so the place comparison does not scan about 225,000 daily rows per request (Part 14 R2.6) |
+| `predictions` + `prediction_factors` | `predictions` | The SHAP `factors` are an **embedded ordered array**. §2.3 chose a child table so analytics could query factors. In MongoDB an embedded array plus an aggregation `$unwind` gives the same query without a join, and a prediction is always read with its factors. The input values, model version, explainer id, forecast window and weather provenance are stored as returned by the ML service |
+| `alerts` + `alert_channel_deliveries` | `alerts` | Per-channel deliveries are an **embedded `channels` array**. Saving an alert as ISSUED with every channel PENDING is then **one atomic document write**, which SQLite needed a transaction for. Adds `origin` (`manual` / `auto_draft`, Part 09 R2) |
+| `notification_attempts` | `notification_attempts` | A separate collection, append-only. It grows per retry and is read per alert, so it is not embedded |
+| `public_advisories` | `public_advisories` | Unique per alert × channel, as before |
+| `users` + `user_regions` | `users` | Salted password hash only, display name, role; regions of responsibility become an embedded `region_ids` array (Part 15 R2) |
+| *(new)* | `revoked_tokens` | Token ids revoked at logout, with a TTL index on expiry, so the collection empties itself (Part 15 R2) |
+| `alert_sequences` | `counters` | The `HW-<year>-<seq>` alert sequence, incremented atomically per year |
+| `model_metadata` | `model_metadata` | One document per model version, recorded from the ML service's `GET /model` when the version changes; `active: true` on the current one |
+| `schema_migrations` | `_migrations` | Applied migration ids and checksums (R2.4) |
+
+### R2.2 Indexes (ported from §4, query by query)
+- `predictions`: `{region_id, lead_days, created_at desc}` serves latest-per-place, the composite `latest-by-region` aggregation for the map, and the Prediction page. `{valid_date, region_id}` serves analytics ("one per place-day, newest wins").
+- `weather_snapshots`: `{region_id, valid_date}` for the temperature trend.
+- `alerts`: `{status}`, `{region.id}`, `{created_at desc}`, plus **unique** `{created_by, client_request_id}`, the idempotency guarantee SQLite enforced with a UNIQUE constraint.
+- `notification_attempts`: `{alert_id, started_at}`. `public_advisories`: unique `{alert_id, channel}`, and `{published_at desc}` for the polling feed.
+- `users`: unique `{username}`. `revoked_tokens`: TTL on `expires_at`. `places`: unique `{id}`. `history_summaries`: unique `{region_id, year, month}`.
+- `weather_snapshots` also gets unique `{region_id, valid_date, lead_days, source}`, so re-running an import or a refresh never duplicates a day.
+- Each index is created by a migration and asserted in a test that inspects the query plan for the dashboard and analytics queries (the SQLite part asserted its latest-prediction plan the same way).
+
+### R2.3 Integrity rules that SQLite enforced and MongoDB must enforce another way
+| SQLite mechanism | MongoDB replacement |
+|---|---|
+| Foreign keys | References validated by the API before writing (place exists, prediction exists, user exists), plus `$jsonSchema` collection validators for required fields and enum values |
+| CHECK enums (risk class, alert status, delivery status) | `$jsonSchema` enums with the exact vocabulary `NORMAL` / `HEATWAVE` / `SEVERE_HEATWAVE`, `DRAFT` / `READY` / `ISSUED`, `READY` / `PENDING` / `NOTIFIED` / `FAILED` |
+| Append-only triggers (attempts) and the issued-alert immutability trigger | No update/delete code paths for attempts. Alert updates are conditional writes that match `status ≠ ISSUED` (except delivery status), so an issued alert's content cannot change. Both are covered by tests |
+| UNIQUE constraints | Unique indexes (R2.2) |
+
+### R2.4 Migrations and seeding
+- Numbered migration scripts in `server/` that create collections, validators and indexes. They are recorded in `_migrations` with a checksum and applied automatically in local/test. Staging/production refuse to start with pending migrations, the same rule as §6.
+- Seeding: `places` from `config/regions.yaml` at startup, the first official user via a CLI (Part 15 R2), predictions via the scoring CLI (Part 11 R2), weather history via the import CLI (Part 14 R2).
+- **Existing SQLite data:** local demo data only, so no migration is required. An optional one-off import from `data/local/heatwave.db` can be written if someone wants their local history preserved.
+
+### R2.5 Deployment, backup and retention
+- Local: MongoDB 7 in a container or a native install (Part 01 R2). Staging/production: a managed MongoDB (for example an Atlas free/shared tier) or a self-hosted instance with authentication and TLS. One database per environment, never shared (Part 18 R2).
+- No multi-document transactions are needed (R2.1 keeps each write in one document), so a standalone server is enough. A replica set is optional.
+- Retention unchanged: predictions are never deleted (§5). Backups with `mongodump` on a schedule, with a **tested** `mongorestore` (Part 18 §7).
+
+### R2 acceptance criteria
+- [ ] Collections, validators and indexes in R2.1–R2.3 created by migrations; `docs/database/README.md` updated with the MongoDB model (and the SQLite model kept as the reference section). *(**Partly, step 4:** migrations 1–4 create `places`, `predictions`, `weather_snapshots`, `model_metadata` with `$jsonSchema` validators and indexes, recorded in `_migrations` with checksums. `users`/`revoked_tokens` (step 5), `alerts`/`notification_attempts`/`public_advisories`/`counters` (step 8) and `history_summaries` (step 9) come in their steps. `docs/database/README.md` has a MongoDB section for what exists.)*
+- [ ] Every integrity rule in R2.3 enforced and tested (invalid enum rejected, unknown place rejected, attempts not updatable, issued alert content immutable, duplicate `client_request_id` rejected). *(**Partly:** the database rejects an invalid risk class (`HIGH`, lower-case), a lead over 3, a malformed date or region id, a non-prediction id and a missing payload; unknown places are rejected by the API before any write; snapshots are unique per place/day/lead/source. The alert rules come with step 8.)*
+- [ ] Query plans asserted to use the R2.2 indexes for latest-by-region, alert listing and the analytics aggregations. *(**Partly:** latest-per-place (IXSCAN) and latest-by-region (DISTINCT_SCAN) on `latest_per_place` are asserted. Alert listing (step 8) and analytics (step 9) are pending.)*
+- [x] Startup seeding of `places`, and the migration-pending refusal in staging/production. *(`server/src/bootstrap.ts`: local/test migrate automatically; staging/production stop with a `MigrationError` while any migration is pending (`npm run db:migrate` after a backup). Places are mirrored from `config/regions.yaml` at every start. Live: 18 places, migrations 1–4, model recorded in `model_metadata`.)*
+- [ ] `mongodump`/`mongorestore` procedure documented and a restore tested once.
+- [ ] Cross-check against the UI specs (§8) repeated for the R2 pages: map, place analysis, model-suggested drafts.

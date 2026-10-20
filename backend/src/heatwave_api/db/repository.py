@@ -81,10 +81,16 @@ def _region(row: sqlite3.Row) -> RegionOut:
         zone=row["zone"],
         lat=row["lat"],
         lon=row["lon"],
+        division=row["division"],
+        kind=row["kind"],
+        parent=row["parent_region_id"],
     )
 
 
-_REGION_COLS = "r.region_id, r.name AS region_name, r.district, r.state, r.zone, r.lat, r.lon"
+_REGION_COLS = (
+    "r.region_id, r.name AS region_name, r.district, r.state, r.zone, r.lat, r.lon, "
+    "r.division, r.kind, r.parent_region_id"
+)
 
 
 class SqliteRepository:
@@ -95,18 +101,36 @@ class SqliteRepository:
 
     def upsert_regions(self, regions: Iterable[RegionOut]) -> None:
         now = now_ts()
+        # Cities first: an area's parent_region_id must already exist (foreign key).
+        ordered = sorted(regions, key=lambda r: r.kind != "city")
         with self.db.tx() as c:
             c.executemany(
                 """INSERT INTO regions (region_id, name, district, state, zone, lat, lon,
+                                        division, kind, parent_region_id,
                                         created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT (region_id) DO UPDATE SET
                      name = excluded.name, district = excluded.district,
                      state = excluded.state, zone = excluded.zone, lat = excluded.lat,
-                     lon = excluded.lon, is_active = 1, updated_at = excluded.updated_at""",
+                     lon = excluded.lon, division = excluded.division, kind = excluded.kind,
+                     parent_region_id = excluded.parent_region_id,
+                     is_active = 1, updated_at = excluded.updated_at""",
                 [
-                    (r.id, r.name, r.district, r.state, r.zone, r.lat, r.lon, now, now)
-                    for r in regions
+                    (
+                        r.id,
+                        r.name,
+                        r.district,
+                        r.state,
+                        r.zone,
+                        r.lat,
+                        r.lon,
+                        r.division,
+                        r.kind,
+                        r.parent,
+                        now,
+                        now,
+                    )
+                    for r in ordered
                 ],
             )
 

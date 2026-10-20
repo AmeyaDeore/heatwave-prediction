@@ -15,6 +15,8 @@ import logging
 import os
 import sys
 
+import yaml
+
 from heatwave_ml.features.criteria import RiskCriteria
 from heatwave_ml.features.normals import SeasonalNormals
 from heatwave_ml.ingestion.adapters.synthetic import SyntheticAdapter
@@ -52,10 +54,22 @@ def _normals(ingest: IngestionSettings, prep: PreparationSettings) -> int:
     return 0
 
 
+def training_regions(ingest: IngestionSettings, prep: PreparationSettings, generator: str):
+    """The regions a synthetic generator samples, in its fixed order (config/training_scope.yaml).
+
+    Monitoring may cover more places than training (Revision 2). A generator's dataset is
+    defined by its own list, so adding a monitored place never changes an existing dataset.
+    """
+    scope = yaml.safe_load(prep.training_scope_file.read_text(encoding="utf-8")) or {}
+    if generator not in scope:
+        raise ValueError(f"{prep.training_scope_file} has no region list for '{generator}'")
+    return load_regions(ingest.regions_file, list(scope[generator]))
+
+
 def _dataset(ingest: IngestionSettings, prep: PreparationSettings, args) -> int:
     criteria = RiskCriteria.load(prep.risk_config)
     normals = SeasonalNormals.load(prep.seasonal_normals_file)
-    regions = load_regions(ingest.regions_file)
+    regions = training_regions(ingest, prep, SyntheticGeneratorV1.version)
     zone = RawLandingZone(ingest.raw_data_dir)
 
     # Land the batch through Part 02's pipeline (skipped if this generator+seed+count
@@ -141,6 +155,11 @@ def _observed(ingest: IngestionSettings, prep: PreparationSettings) -> int:
     prep.processed_dir.mkdir(parents=True, exist_ok=True)
     path = prep.processed_dir / "observed_dataset.parquet"
     dataset.to_parquet(path, index=False)
+    # Revision 2: the same rows as CSV for the Node.js API's history import (Part 14 R2). The
+    # labels come from this Python rule; Node never relabels.
+    dataset.assign(date=dataset["date"].dt.strftime("%Y-%m-%d")).to_csv(
+        prep.processed_dir / "observed_dataset.csv", index=False
+    )
     (prep.processed_dir / "observed_dataset.summary.json").write_text(
         json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8"
     )

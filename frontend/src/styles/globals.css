@@ -1,0 +1,281 @@
+/*
+ * Design tokens (Part 10 §4) — the single place colours, radii and type sizes are defined.
+ *
+ * Layering:
+ *   1. Raw tone palette   --tone-{success|warning|danger|info|neutral}-*      (this file)
+ *   2. Risk semantics     --risk-{normal|heatwave|severe}-*  → aliases of tones (this file)
+ *   3. Tailwind exposure  --color-*  in @theme inline (bg-risk-severe, text-tone-info-subtle-fg …)
+ *   4. Which class/status uses which tone: src/design/tokens.ts
+ *
+ * Pages never write a colour literal. Change a colour here and every badge, banner, bar and
+ * chart follows. Contrast of every text/background pair is asserted by
+ * src/design/contrast.test.ts in both themes, so an edit that breaks WCAG AA fails the build.
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light;
+  --radius: 0.75rem;
+
+  /* Structural chrome: neutral slate with a cool blue cast (§4.1 "neutral grays/blues"). */
+  --background: oklch(0.982 0.003 247);
+  --foreground: oklch(0.2 0.03 262);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.03 262);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.03 262);
+  --primary: oklch(0.36 0.085 258);
+  --primary-foreground: oklch(0.985 0.003 247);
+  --secondary: oklch(0.955 0.008 255);
+  --secondary-foreground: oklch(0.27 0.04 260);
+  --muted: oklch(0.955 0.008 255);
+  --muted-foreground: oklch(0.5 0.035 258);
+  --accent: oklch(0.945 0.012 255);
+  --accent-foreground: oklch(0.27 0.04 260);
+  --destructive: oklch(0.53 0.2 27);
+  --border: oklch(0.91 0.01 255);
+  --input: oklch(0.88 0.012 255);
+  --ring: oklch(0.55 0.12 255);
+  --nav: oklch(0.24 0.045 262);
+  --nav-foreground: oklch(0.97 0.005 255);
+  --nav-muted: oklch(0.76 0.03 258);
+  --nav-accent: oklch(0.33 0.05 262);
+
+  /* Tone palette. solid = filled surfaces; subtle = tinted surfaces (badges, pills). */
+  --tone-success: oklch(0.5 0.13 155);
+  --tone-success-fg: oklch(0.99 0.01 155);
+  --tone-success-subtle: oklch(0.955 0.04 155);
+  --tone-success-subtle-fg: oklch(0.38 0.1 155);
+  --tone-success-border: oklch(0.82 0.08 155);
+
+  --tone-warning: oklch(0.77 0.16 65);
+  --tone-warning-fg: oklch(0.25 0.06 45);
+  --tone-warning-subtle: oklch(0.96 0.05 75);
+  --tone-warning-subtle-fg: oklch(0.42 0.11 50);
+  --tone-warning-border: oklch(0.83 0.11 70);
+
+  --tone-danger: oklch(0.53 0.21 27);
+  --tone-danger-fg: oklch(0.99 0.01 27);
+  --tone-danger-subtle: oklch(0.95 0.03 22);
+  --tone-danger-subtle-fg: oklch(0.43 0.17 27);
+  --tone-danger-border: oklch(0.8 0.1 22);
+
+  --tone-info: oklch(0.5 0.13 250);
+  --tone-info-fg: oklch(0.99 0.01 250);
+  --tone-info-subtle: oklch(0.955 0.025 250);
+  --tone-info-subtle-fg: oklch(0.4 0.12 252);
+  --tone-info-border: oklch(0.82 0.06 250);
+
+  --tone-neutral: oklch(0.5 0.03 258);
+  --tone-neutral-fg: oklch(0.99 0.003 255);
+  --tone-neutral-subtle: oklch(0.95 0.008 255);
+  --tone-neutral-subtle-fg: oklch(0.38 0.03 258);
+  --tone-neutral-border: oklch(0.86 0.012 255);
+
+  /* Chart series for Part 14; series 1-3 are the risk classes in order. */
+  --chart-1: var(--tone-success);
+  --chart-2: var(--tone-warning);
+  --chart-3: var(--tone-danger);
+  --chart-4: var(--tone-info);
+  --chart-5: var(--tone-neutral);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.165 0.02 262);
+  --foreground: oklch(0.96 0.006 255);
+  --card: oklch(0.205 0.024 262);
+  --card-foreground: oklch(0.96 0.006 255);
+  --popover: oklch(0.225 0.026 262);
+  --popover-foreground: oklch(0.96 0.006 255);
+  --primary: oklch(0.8 0.08 250);
+  --primary-foreground: oklch(0.2 0.04 262);
+  --secondary: oklch(0.27 0.028 262);
+  --secondary-foreground: oklch(0.94 0.008 255);
+  --muted: oklch(0.27 0.028 262);
+  --muted-foreground: oklch(0.73 0.025 258);
+  --accent: oklch(0.29 0.03 262);
+  --accent-foreground: oklch(0.96 0.006 255);
+  --destructive: oklch(0.65 0.19 25);
+  --border: oklch(0.32 0.028 262);
+  --input: oklch(0.36 0.03 262);
+  --ring: oklch(0.68 0.12 252);
+  --nav: oklch(0.13 0.02 262);
+  --nav-foreground: oklch(0.97 0.005 255);
+  --nav-muted: oklch(0.74 0.03 258);
+  --nav-accent: oklch(0.26 0.035 262);
+
+  --tone-success: oklch(0.7 0.15 155);
+  --tone-success-fg: oklch(0.2 0.05 155);
+  --tone-success-subtle: oklch(0.29 0.06 158);
+  --tone-success-subtle-fg: oklch(0.86 0.12 155);
+  --tone-success-border: oklch(0.45 0.09 155);
+
+  --tone-warning: oklch(0.8 0.15 70);
+  --tone-warning-fg: oklch(0.23 0.06 45);
+  --tone-warning-subtle: oklch(0.31 0.07 60);
+  --tone-warning-subtle-fg: oklch(0.88 0.12 78);
+  --tone-warning-border: oklch(0.5 0.1 65);
+
+  --tone-danger: oklch(0.64 0.2 25);
+  --tone-danger-fg: oklch(0.15 0.04 25);
+  --tone-danger-subtle: oklch(0.3 0.08 22);
+  --tone-danger-subtle-fg: oklch(0.85 0.09 20);
+  --tone-danger-border: oklch(0.5 0.14 24);
+
+  --tone-info: oklch(0.7 0.13 250);
+  --tone-info-fg: oklch(0.18 0.05 255);
+  --tone-info-subtle: oklch(0.29 0.06 255);
+  --tone-info-subtle-fg: oklch(0.86 0.07 250);
+  --tone-info-border: oklch(0.46 0.09 252);
+
+  --tone-neutral: oklch(0.7 0.025 258);
+  --tone-neutral-fg: oklch(0.18 0.02 262);
+  --tone-neutral-subtle: oklch(0.29 0.025 262);
+  --tone-neutral-subtle-fg: oklch(0.86 0.015 258);
+  --tone-neutral-border: oklch(0.42 0.03 262);
+}
+
+/* Risk semantics (§4.1): the one risk-class → colour mapping. Aliases, so they cannot drift. */
+:root,
+.dark {
+  --risk-normal: var(--tone-success);
+  --risk-normal-fg: var(--tone-success-fg);
+  --risk-normal-subtle: var(--tone-success-subtle);
+  --risk-normal-subtle-fg: var(--tone-success-subtle-fg);
+  --risk-normal-border: var(--tone-success-border);
+
+  --risk-heatwave: var(--tone-warning);
+  --risk-heatwave-fg: var(--tone-warning-fg);
+  --risk-heatwave-subtle: var(--tone-warning-subtle);
+  --risk-heatwave-subtle-fg: var(--tone-warning-subtle-fg);
+  --risk-heatwave-border: var(--tone-warning-border);
+
+  --risk-severe: var(--tone-danger);
+  --risk-severe-fg: var(--tone-danger-fg);
+  --risk-severe-subtle: var(--tone-danger-subtle);
+  --risk-severe-subtle-fg: var(--tone-danger-subtle-fg);
+  --risk-severe-border: var(--tone-danger-border);
+
+  /* The brand accent bar at the bottom of every screen (§4.1) is the severe-risk red. */
+  --brand-accent: var(--tone-danger);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale (§4.2). Roles → classes live in src/design/tokens.ts (typography). */
+  --text-meta: 0.6875rem;
+  --text-meta--line-height: 1rem;
+  --text-metric: 2rem;
+  --text-metric--line-height: 2.25rem;
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.125rem;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-nav: var(--nav);
+  --color-nav-foreground: var(--nav-foreground);
+  --color-nav-muted: var(--nav-muted);
+  --color-nav-accent: var(--nav-accent);
+  --color-brand-accent: var(--brand-accent);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-tone-success: var(--tone-success);
+  --color-tone-success-fg: var(--tone-success-fg);
+  --color-tone-success-subtle: var(--tone-success-subtle);
+  --color-tone-success-subtle-fg: var(--tone-success-subtle-fg);
+  --color-tone-success-border: var(--tone-success-border);
+  --color-tone-warning: var(--tone-warning);
+  --color-tone-warning-fg: var(--tone-warning-fg);
+  --color-tone-warning-subtle: var(--tone-warning-subtle);
+  --color-tone-warning-subtle-fg: var(--tone-warning-subtle-fg);
+  --color-tone-warning-border: var(--tone-warning-border);
+  --color-tone-danger: var(--tone-danger);
+  --color-tone-danger-fg: var(--tone-danger-fg);
+  --color-tone-danger-subtle: var(--tone-danger-subtle);
+  --color-tone-danger-subtle-fg: var(--tone-danger-subtle-fg);
+  --color-tone-danger-border: var(--tone-danger-border);
+  --color-tone-info: var(--tone-info);
+  --color-tone-info-fg: var(--tone-info-fg);
+  --color-tone-info-subtle: var(--tone-info-subtle);
+  --color-tone-info-subtle-fg: var(--tone-info-subtle-fg);
+  --color-tone-info-border: var(--tone-info-border);
+  --color-tone-neutral: var(--tone-neutral);
+  --color-tone-neutral-fg: var(--tone-neutral-fg);
+  --color-tone-neutral-subtle: var(--tone-neutral-subtle);
+  --color-tone-neutral-subtle-fg: var(--tone-neutral-subtle-fg);
+  --color-tone-neutral-border: var(--tone-neutral-border);
+
+  --color-risk-normal: var(--risk-normal);
+  --color-risk-normal-fg: var(--risk-normal-fg);
+  --color-risk-normal-subtle: var(--risk-normal-subtle);
+  --color-risk-normal-subtle-fg: var(--risk-normal-subtle-fg);
+  --color-risk-normal-border: var(--risk-normal-border);
+  --color-risk-heatwave: var(--risk-heatwave);
+  --color-risk-heatwave-fg: var(--risk-heatwave-fg);
+  --color-risk-heatwave-subtle: var(--risk-heatwave-subtle);
+  --color-risk-heatwave-subtle-fg: var(--risk-heatwave-subtle-fg);
+  --color-risk-heatwave-border: var(--risk-heatwave-border);
+  --color-risk-severe: var(--risk-severe);
+  --color-risk-severe-fg: var(--risk-severe-fg);
+  --color-risk-severe-subtle: var(--risk-severe-subtle);
+  --color-risk-severe-subtle-fg: var(--risk-severe-subtle-fg);
+  --color-risk-severe-border: var(--risk-severe-border);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  /* Figures in metrics and tables line up (tabular numerals). */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

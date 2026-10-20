@@ -19,6 +19,9 @@ class PreparationSettings:
     random_seed: int
     test_fraction: float
     validation_fraction: float
+    # Which monitored regions each synthetic generator samples (Revision 2: monitoring grew
+    # to all of Maharashtra, but the v1 dataset is defined over the original five areas).
+    training_scope_file: Path = Path("config/training_scope.yaml")
 
     @property
     def manifest_path(self) -> Path:
@@ -40,6 +43,7 @@ class PreparationSettings:
             random_seed=int(env("RANDOM_SEED", "42")),
             test_fraction=float(env("TEST_FRACTION", "0.15")),
             validation_fraction=float(env("VALIDATION_FRACTION", "0.15")),
+            training_scope_file=_path(env("TRAINING_SCOPE_FILE", "config/training_scope.yaml")),
         )
         if not 0 < settings.test_fraction + settings.validation_fraction < 1:
             raise ValueError("TEST_FRACTION + VALIDATION_FRACTION must be between 0 and 1")

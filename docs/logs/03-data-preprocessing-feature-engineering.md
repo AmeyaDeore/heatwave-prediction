@@ -70,3 +70,11 @@ Defined the heatwave labelling rule as a versioned spec, built a reproducible IM
 ## Handoff
 
 Dataset `data/heatwave_dataset.csv`: 4,968 rows, NORMAL 4,022 / HEATWAVE 521 / SEVERE 425 (80.96 / 10.49 / 8.55 %); train 3,476, validation 746, test 746, stratified, seed 42. Features: `tmax_c, normal_tmax_c, rh_pct, wind_ms, solar_mj_m2, precip_mm, temp_deviation_c` (+ `month` as an imputer input). Class index NORMAL 0, HEATWAVE 1, SEVERE_HEATWAVE 2.
+
+## Update 2026-10-20: Revision 2 step 3, normals for the Maharashtra places and the v1 training scope
+
+- **Normals:** `heatwave-prepare normals` on the fresh IMD 1991–2020 pull, built to a scratch file first and compared. The five original places' 1,830 rows are **byte-identical and in the same order**, and 4,758 rows were added (18 × 366, 0 nulls). So the production model, its explainer and the v1 dataset are unaffected (nothing pins the file hash; the dataset check is per row, by value). Peaks: coastal 34.7–36.3 °C; Vidarbha/Marathwada 40.8–42.5 °C.
+- **Defect found and fixed: v1 dataset scope.** `SyntheticGeneratorV1` draws (region, date) slots across every region it is given, in order. With 18 monitored places, a fresh `heatwave-prepare dataset` (as on this machine, where `data/raw/` was empty) would have silently produced a different "v1". Fix: `config/training_scope.yaml` lists each generator's regions (`imd-sim-v1`: the original five, in order); `heatwave-prepare dataset` reads it through `PreparationSettings.training_scope_file` (`TRAINING_SCOPE_FILE`). **Verified:** rebuilding v1 to a scratch path gives SHA-256 `7412ab78…`, identical to the committed dataset. A test pins the five ids and their order.
+- **Observed history:** `heatwave-prepare observed` rebuilt for all 18 places: 164,376 place-days (2000–2024), 265 HEATWAVE + 5 SEVERE_HEATWAVE real days, max 46.87 °C. `data/processed/` is git-ignored.
+- **Check on the current model** (scratch registry, Apple Silicon run): all 72 place × lead pairs score through the ML service's `/predict/batch` (all NORMAL today, consistent with late-October conditions), and the explainer loads and passes its startup probe.
+- Tests: 1 new (`test_v1_training_scope_is_the_original_five_areas_in_order`). Python suite: 332 passed, 3 skipped, the same 6 pre-existing errors.

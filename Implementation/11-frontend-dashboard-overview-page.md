@@ -4,6 +4,8 @@
 **Feeds into:** 16 (integration)
 **Owner persona:** Frontend engineer
 
+> **Revision 2 (2026-10-20, examiner feedback, M4):** the "visual regional overview" in §2.3 becomes an **interactive Maharashtra map** of every monitored place, coloured by latest predicted risk. The page's other sections are unchanged. The open decisions in §3 and §4 are now settled. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Implement the "Heatwave Command Center" — the landing screen giving a real-time summary of heatwave risk across all monitored regions, matching the UI mockup exactly.
@@ -57,3 +59,40 @@ All four cards source from the same latest-prediction API response for the selec
 ## 6. Handoff note template
 
 > Dashboard page implemented at route: <path>. Confirmed data sources: <API calls used>. Any gaps found in the Part 07 contract while building this page: <list, if any — feed back to Part 07 owner>.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** 🟡 **Built** (step 6, uncommitted): the dashboard with the Maharashtra map, layers, table, cards, score button, and the 6-hourly refresh script; verified in the end-to-end demo. Deviations: the map has no district boundaries (no verified licensed source); the Forecast card makes 3 extra calls; no mockup in the repo to review against.
+
+**Why:** the examiner asked for a Maharashtra map showing heatwave predictions and risk levels for places in Maharashtra (M4). §2.3 already planned a visual regional overview beside the regional table, and the map is that overview, so it fits without reshaping the page.
+
+### R2.1 Regional Heatwave Risk panel → Maharashtra map
+- Left: the shared `MaharashtraMap` (Part 10 R2.2) with every place from `GET /regions`, each coloured, labelled and shaped by its latest predicted risk class for the selected lead day. Right (stacked on small screens): the regional table (Area/Place, District, Temperature, Risk badge, valid date), extended from five Mumbai areas to all places, sortable by risk.
+- **Lead-day switch** (Today / +1 / +2 / +3 days) over map and table, so the "next 1–3 days" horizon is visible across the state. Default: today.
+- **Map layer switch**, all from our actual data for the selected lead day: **Predicted risk** (default; the stored model prediction, categorical risk scale), **Forecast max temperature** (Open-Meteo, °C, sequential scale), and **Departure from normal** (forecast Tmax − the place's IMD normal, the model's top feature, sequential scale with the 4.5 °C and 6.5 °C thresholds marked in the legend). The table shows all three columns at once, so switching the layer never hides data.
+- **Freshness on the map itself:** the legend shows when the forecast was issued and when places were last scored. Stale places get the hollow marker (Part 10 R2.2), and places never scored show "no data" with the score-missing action (R2.3).
+- **Model caveat until Part 05 R2:** while the production model is still the coastal-trained one, inland places' predicted risk carries "Model not yet validated for inland places" in the tooltip and legend. The forecast-temperature and departure layers have no such caveat, because they are observations and forecasts, not model output.
+- **Explore and compare** (into Part 14 R2): the selected place's tooltip and table row offer **"Analyse"** (that place's history, patterns and predictions), and ticking up to four table rows enables **"Compare"** (side by side). The dashboard stays the entry point; the analysis lives on the Analytics page and is not duplicated here.
+- **Division filter** (our proposal, from `regions.yaml` data): All / Konkan / Pune / Nashik / Chhatrapati Sambhajinagar / Amravati / Nagpur. It filters the table and zooms the map.
+- The "DEMO DATA" tag stays while the weather feed is the committed sample or stale; the shell's stale-weather badge is unchanged.
+
+### R2.2 Data sources (resolves §4's "minimum calls" requirement)
+- **Two calls, independent of the number of places:** `GET /api/v1/predictions/latest-by-region?lead_days=` (Part 07 §B) feeds the predicted-risk layer, the table's risk column and the four metric cards. `GET /api/v1/weather?lead_days=` (all places, which the existing endpoint already supports) feeds the temperature and departure layers and columns. The selected place's entries are reused for the metric cards, with no extra per-place request.
+- **Refresh:** the existing live policy (60 s poll, paused while hidden). "Last updated" comes from these queries automatically.
+
+### R2.3 Decisions recorded (owner, 2026-10-20)
+- **Row and marker click → select the place and stay on the dashboard.** Every panel re-focuses on that place. Each table row and map tooltip also has a separate "Details" link that opens the Prediction page for that place (`/predictions?region=<id>`). The command center stays the hub. This answers §3's "define exactly which".
+- **Empty data → both a seeding CLI and an explicit button.** Places with no stored prediction are listed in an empty/partial state with **"Score places without a prediction"**, which calls `POST /predictions/batch` with `only_missing: true` and shows progress and the result. The `server` seeding CLI scores every place × lead 0–3 for demos and integration (Part 16 R2). The dashboard never scores silently on page view.
+- **Verification environment:** until the v2 model is promoted, local verification runs the ML service from a scratch registry on the developer's platform (runbook, Troubleshooting). The committed registry is never changed for local work.
+
+### R2.4 Unchanged
+Page header, the four metric cards, "Why this prediction?" (condensed SHAP, linking to the Prediction page), Recommended Authority Actions, region switching through the global selector, and the loading/error/empty conventions.
+
+### R2 acceptance criteria
+- [ ] Map + table panel implemented with every place, risk colour + label + shape, lead-day switch and division filter.
+- [ ] Map layer switch (predicted risk / forecast Tmax / departure) and the three table columns, all from stored data and forecasts; freshness shown in the legend; inland model caveat shown until Part 05 R2.
+- [ ] "Analyse" and "Compare" open the Part 14 R2 views with the right places.
+- [ ] Map, table and metric cards fed by exactly two calls (`latest-by-region` + all-places `weather`), verified in the network log.
+- [ ] Marker and row click select the place and stay; the "Details" link opens the Prediction page with the right place.
+- [ ] "Score places without a prediction" button implemented with progress, partial-failure reporting and rate-limit handling; seeding CLI documented in the runbook.
+- [ ] Visual check: a place's colour on the map, its table badge, the metric card and the Prediction page all show the same risk class and probability.

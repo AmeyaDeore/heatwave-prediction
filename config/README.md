@@ -6,6 +6,7 @@ Non-secret configuration that more than one part of the system reads. Each value
 |------|---------|------------------------|
 | `risk_classes.yaml` | ml (labelling), backend (validation) | `RISK_CONFIG_PATH` |
 | `regions.yaml` | ml (ingestion), backend (upserted into the `regions` table at startup, Part 08) | `MONITORED_REGIONS_FILE` |
+| `training_scope.yaml` | ml (which monitored regions each synthetic generator samples, Part 03; `imd-sim-v1` = the original five Mumbai areas) | `TRAINING_SCOPE_FILE` |
 | `seasonal_normals.csv` | ml (features, labels, synthetic generator), backend (live features, Part 07) | `SEASONAL_NORMALS_FILE` |
 | `model_selection.yaml` | ml (evaluation, Part 05; explainer latency budget, Part 06) | `MODEL_SELECTION_POLICY` |
 | `alert_channels.yaml` | backend (alert channel ids and labels, Part 07; delivery `mechanism` sms/email/in_app, Part 09) | `ALERT_CHANNELS_FILE` |
@@ -17,6 +18,8 @@ Non-secret configuration that more than one part of the system reads. Each value
 `model_selection.yaml` is the production-model selection policy. Change it only **before** a test evaluation, in its own commit, and bump `policy_version`: `heatwave-evaluate run` refuses to score the test split while this file has uncommitted changes (see `docs/ml/evaluation.md` §2).
 
 `seasonal_normals.csv` is **generated**, not hand-edited: `uv run heatwave-prepare normals` derives it from landed IMD history (1991–2020, ±15-day smoothing; see `docs/data/heatwave-labeling-spec.md` §5). Rebuild it after adding a region to `regions.yaml`. A rebuild changes labels, so the dataset build then asks for `--force`.
+
+`regions.yaml` lists every **monitored** place. Since Revision 2 that is **our project's proposed selection of 18 Maharashtra places** (14 cities across the six divisions plus the four original Mumbai areas). **It is not an examiner-specified list.** Each entry may carry `division`, `kind` (`city`/`area`) and `parent` (an area's city). Both Python loaders and the Node.js API validate the city/area tree. A new place must land in the same change as its normals: run `heatwave-prepare normals`, and the existing rows must stay byte-identical. A **training** dataset uses its own fixed list from `training_scope.yaml`, so adding a monitored place never changes the v1 dataset (`data/heatwave_dataset.csv`, SHA-256 `7412ab78…`, verified to rebuild identically with 18 places configured).
 
 Secrets never go in this directory. They belong in the per-concern `.env` files.
 

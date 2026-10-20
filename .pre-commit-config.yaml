@@ -2,7 +2,7 @@
 # Run on everything:       uv run pre-commit run --all-files
 #
 # Python tools run through `uv run` so their versions come from uv.lock rather
-# than a second pin here. The frontend hooks need `npm ci` in frontend/ first.
+# than a second pin here. The frontend and server hooks need `npm ci` in frontend/ and server/ first.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -52,4 +52,19 @@ repos:
         entry: npm --prefix frontend run lint
         language: system
         files: ^frontend/
+        pass_filenames: false
+
+      # Node.js application API (Revision 2). Needs `npm ci` in server/ first.
+      - id: server-prettier
+        name: prettier (server format)
+        entry: npm --prefix server run format:check
+        language: system
+        files: ^server/
+        pass_filenames: false
+
+      - id: server-eslint
+        name: eslint (server lint)
+        entry: npm --prefix server run lint
+        language: system
+        files: ^server/
         pass_filenames: false

@@ -4,6 +4,8 @@
 **Feeds into:** every other part
 **Owner persona:** whoever sets up the project skeleton first (commonly the backend lead)
 
+> **Revision 2 (2026-10-20, examiner feedback):** adds a `server/` workspace (Node.js + Express + TypeScript) and a local MongoDB to the skeleton, for M1, M2 and M5. Everything below stays valid. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Establish the repository structure, tooling, configuration strategy, and local development environment so that every subsequent part (data pipeline, backend, frontend) has a fixed, agreed-upon place to live and a consistent way to run locally.
@@ -85,3 +87,56 @@ This runbook should be re-validated (dry-run by a second person) once Parts 07 a
 > Repo is live at: <location>. Layout matches Section 2. Config template lives at: <path>. Anyone starting Part 02 or Part 07 can now assume a working, empty skeleton with agreed tooling.
 
 **Filled in:** Repo is live at: this monorepo (local; no remote pushed yet). Layout matches Section 2, plus a root `config/` for shared non-secret values (ADR 0001). Config templates live at: `backend/.env.example`, `ml/.env.example`, `frontend/.env.example`, with the inventory in `docs/configuration-and-secrets.md`. Anyone starting Part 02 or Part 07 can now assume a working, empty skeleton with agreed tooling.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** ✅ **Step 1 built** (2026-10-20, uncommitted): `server/` workspace, local MongoDB, env template, pre-commit hooks, runbook. Still open: the human second-person runbook dry run.
+
+**Why:** the application layer becomes MERN (master plan §5). Node.js and MongoDB need a fixed place in the monorepo before Parts 07–09 and 15 are reworked. The existing layout, tooling and config strategy do not change. They gain one workspace and one database.
+
+### R2.1 Layout additions
+- `server/`: the Node.js + Express application API (Parts 07 §B, 09, 13–15 server side), with its own `package.json`, lock file, `tsconfig`, tests and `.env.example`. It is independently runnable, like every other top-level directory.
+- `backend/` keeps its name and becomes the internal **ML inference service** (Part 07 §A). It is not renamed, so history, imports, docs and the `heatwave_api` package stay stable.
+- `config/` stays the single home of shared non-secret config. `server/` reads the same `regions.yaml`, `risk_classes.yaml`, `alert_channels.yaml`, `notification_templates.yaml`, `notification_recipients.yaml` and `feature_labels.json` through env-var paths, never copies.
+- `config/geo/`: the Maharashtra boundary file used by the map (Part 10 R2), with its source and licence recorded in a README.
+
+### R2.2 Tooling
+- **Node.js 22 LTS** for both `frontend/` and `server/` (already pinned in `.nvmrc`), npm with a committed `package-lock.json` per workspace.
+- **TypeScript** in `server/`, matching the frontend. The same ESLint (typescript-eslint) and Prettier settings, and the existing pre-commit hooks extended to `server/`.
+- **MongoDB 7** locally, either the official container image or a local MongoDB Community install (the runbook documents both). There is no cloud dependency for local development.
+- **Test tooling for `server/`:** Vitest (as in the frontend), HTTP-level tests, and an in-memory MongoDB for tests, so no developer needs a running database to run the suite (Part 17 R2).
+- **Dependency budget** (clarification, 2026-10-20: no unnecessary frameworks or services). Anything beyond this list needs a one-line reason in the Part 01 log:
+
+  | Purpose | `server/` runtime | Why this and not more |
+  |---|---|---|
+  | HTTP | Express 5 | the "E" in MERN |
+  | MongoDB | Mongoose | the MERN-standard ODM; collection validators are also kept in the database (Part 08 R2) |
+  | Validation | zod | request/response schemas that also generate `openapi.json` |
+  | Auth | jsonwebtoken, bcryptjs | the token and the password hash (Part 15 R2); pure JS, no native build |
+  | Config | js-yaml | reads the shared `config/*.yaml` |
+  | CORS | cors | small, standard |
+
+  Dev only: TypeScript, tsx, Vitest, supertest, mongodb-memory-server, ESLint, Prettier.
+- **Not added:** no message queue, no Redis, no separate notification service, and no logging, rate-limit or scheduler framework. The rate limit (a sliding window, as in the Python service), JSON request logging and the in-process notification queue are a few dozen lines each. Scheduling uses the OS scheduler already documented in Part 02. The frontend adds **no** runtime dependency for Revision 2: the map is SVG (Part 10 R2.2), and charts in Part 14 use the same approach unless a charting library is justified then.
+
+### R2.3 Configuration and secrets
+New variables, all in `server/.env.example` with placeholders and in `docs/configuration-and-secrets.md`:
+- `MONGODB_URI` (local default points at `localhost`; staging/production values are secrets, Part 18 R2).
+- `JWT_SECRET`, `JWT_TTL_MINUTES` (Part 15 R2). The server refuses to start with the placeholder secret outside local/test, the rule `AUTH_SECRET_KEY` already follows.
+- `ML_SERVICE_URL`, `ML_SERVICE_TOKEN` (the internal call to FastAPI, Part 07 §A).
+- `CORS_ALLOWED_ORIGINS`, `PORT` (the Node API defaults to `4000`; the ML service stays on `8000`), `NOTIFICATIONS_MODE` and the provider variables, moved conceptually from `backend/.env.example` (Part 09 R2).
+- `frontend/.env.example`: `VITE_API_BASE_URL` points at the Node API (`http://localhost:4000`) once the Part 07 §B transition switches it. No other new frontend variable (the map is plain SVG, Part 10 R2.2).
+
+### R2.4 Runbook additions (`docs/local-dev-runbook.md`)
+1. Start MongoDB (container or local service).
+2. `cd server && npm ci`, then copy `.env.example` to `.env`.
+3. Start the ML service (step 6, unchanged), then the Node API, then the frontend (step 7).
+4. Seed: create the first official user and score every place (Part 15 R2, Part 11 R2 CLI).
+5. Verify: sign in → Maharashtra map shows coloured places (Part 11 R2).
+
+### R2 acceptance criteria
+- [x] `server/` workspace exists with lock file, lint, format and test scripts passing on a skeleton. *(2026-10-20: Express 5 + TypeScript skeleton with `/health`, readiness against MongoDB, the `/api/v1` envelope, request id, JSON access log, 404/500 handling; `npm run typecheck · lint · format:check · test · build` all pass, 37 tests. Log: `docs/logs/01-environment-and-repo-setup.md`, Update 2026-10-20.)*
+- [x] Local MongoDB documented (container and native install), with a connectivity check in the runbook. *(Runbook step 6a; `npm run db:check`, read-only. Checked against a native MongoDB 7.0.31; the container path is documented but was not exercised.)*
+- [x] `server/.env.example` and `docs/configuration-and-secrets.md` list every new variable. The secret placeholders are refused outside local/test. *(`JWT_SECRET` and `ML_SERVICE_TOKEN`: the placeholder or under 32 characters stops startup in staging/production; tested.)*
+- [x] Pre-commit hooks cover `server/`. *(`server-prettier`, `server-eslint` in `.pre-commit-config.yaml`; pass on the new files. The `detect-secrets` hook calls `uv`, which is not installed on the development Mac, so it was run directly from `.venv`: clean.)*
+- [ ] Runbook updated with steps R2.4 and re-validated by a second person, together with the outstanding Part 01 dry run. *(**Partly.** Runbook updated with steps 6a (MongoDB) and 6b (Node API), checked by an automated run on macOS. Seeding (users, scoring) arrives with later steps. The second-person dry run is still outstanding.)*

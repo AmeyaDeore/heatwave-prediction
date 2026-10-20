@@ -1,0 +1,35 @@
+{
+  "about": "Expected strings produced by heatwave_ml.explainability.summary.format_value / format_probability (Python). Regenerate with the snippet in docs/frontend/README.md §Testing if those functions change.",
+  "values": [
+    ["tmax_c", 31.25, "31.2 °C"],
+    ["tmax_c", 42.6, "42.6 °C"],
+    ["tmax_c", 31.35, "31.4 °C"],
+    ["temp_deviation_c", 8.02, "+8.0 °C"],
+    ["temp_deviation_c", -0.04, "-0.0 °C"],
+    ["temp_deviation_c", 0.0, "+0.0 °C"],
+    ["temp_deviation_c", -3.25, "-3.2 °C"],
+    ["temp_deviation_c", 0.05, "+0.1 °C"],
+    ["rh_pct", 79, "79%"],
+    ["rh_pct", 40.5, "40%"],
+    ["rh_pct", 41.5, "42%"],
+    ["wind_ms", 2.45, "2.5 m/s"],
+    ["solar_mj_m2", 20.48, "20.5 MJ/m²"],
+    ["precip_mm", 0.0, "0.0 mm"],
+    ["normal_tmax_c", 30.39, "30.4 °C"]
+  ],
+  "probabilities": [
+    [0.125, "12%"],
+    [0.135, "14%"],
+    [0.285, "28%"],
+    [0.5, "50%"],
+    [0.745, "74%"],
+    [0.9965, ">99%"],
+    [0.995, ">99%"],
+    [0.994, "99%"],
+    [0.004, "<1%"],
+    [0.005, "0%"],
+    [0.015, "2%"],
+    [0.025, "2%"],
+    [0.6789, "68%"]
+  ]
+}

@@ -4,6 +4,8 @@
 **Feeds into:** 03 (preprocessing/feature engineering)
 **Owner persona:** ML/data engineer
 
+> **Revision 2 (2026-10-20, examiner feedback):** monitoring extends from five Mumbai areas to places across Maharashtra, for the map (M4) and the analysis (M3). The adapters already take their location list from config, so this is a configuration and data-pull change, not new ingestion code. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Build the ingestion layer that acquires meteorological data from the three source types named in the project brief — IMD (India Meteorological Department), NASA POWER, and a historical/synthetic dataset — and lands it in a consistent, raw, queryable form for the preprocessing stage to consume.
@@ -85,3 +87,71 @@ If any source cannot supply a field, document that gap explicitly now rather tha
 > Raw data available at: <location/path pattern>. Sources implemented: <list>. Known field gaps: <list>. Location list config lives at: <path>. Part 03 can now build preprocessing against this raw shape.
 
 **Filled in:** see §4 of [`docs/data/field-availability.md`](../docs/data/field-availability.md).
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** 🟡 **In progress.** ✅ Step 2 (loaders) and ✅ step 3 (places and real data pulls) built, uncommitted. `config/regions.yaml` holds our proposed 18 places with real IMD, NASA POWER and forecast data landed and **no gaps**. ⏳ Not started: the 6-hourly refresh (step 6).
+
+**Why:** the examiner asked for heatwave monitoring and analysis of places in Maharashtra, shown on a Maharashtra map. They did not give an exhaustive list of cities or filters. **The list below is our proposed initial selection, not the examiner's list.** It stays configurable in `config/regions.yaml`, and a place can be added or removed without code changes (subject to R2.3).
+
+### R2.1 Proposed initial place set
+
+Selection rule: at least one place in each of Maharashtra's six administrative divisions, favouring district headquarters with known pre-monsoon heat exposure (Vidarbha, Khandesh, Marathwada) while keeping the coastal Konkan. The five existing Mumbai areas are kept unchanged, because they are what the trained model, the tests and the mockups use.
+
+| Division | Place (`id`) | District | Zone (labelling rule) | Approx. lat, lon | Status |
+|---|---|---|---|---|---|
+| Konkan | Mumbai (`mumbai`) + areas Kurla, Andheri, Dharavi, Colaba | Mumbai City / Suburban | coastal | existing | **existing** |
+| Konkan | Thane (`thane`) | Thane | coastal | 19.218, 72.978 | proposed |
+| Konkan | Ratnagiri (`ratnagiri`) | Ratnagiri | coastal | 16.990, 73.312 | proposed |
+| Pune | Pune (`pune`) | Pune | plains | 18.520, 73.857 | proposed |
+| Pune | Solapur (`solapur`) | Solapur | plains | 17.660, 75.906 | proposed |
+| Pune | Kolhapur (`kolhapur`) | Kolhapur | plains | 16.705, 74.243 | proposed |
+| Nashik | Nashik (`nashik`) | Nashik | plains | 19.998, 73.790 | proposed |
+| Nashik | Jalgaon (`jalgaon`) | Jalgaon | plains | 21.008, 75.563 | proposed |
+| Chhatrapati Sambhajinagar | Chhatrapati Sambhajinagar (`sambhajinagar`) | Chhatrapati Sambhajinagar | plains | 19.876, 75.343 | proposed |
+| Chhatrapati Sambhajinagar | Nanded (`nanded`) | Nanded | plains | 19.138, 77.321 | proposed |
+| Amravati | Amravati (`amravati`) | Amravati | plains | 20.937, 77.780 | proposed |
+| Amravati | Akola (`akola`) | Akola | plains | 20.700, 77.008 | proposed |
+| Nagpur | Nagpur (`nagpur`) | Nagpur | plains | 21.146, 79.088 | proposed |
+| Nagpur | Chandrapur (`chandrapur`) | Chandrapur | plains | 19.962, 79.296 | proposed |
+
+Coordinates are approximate city centroids. Part 02 verifies each against the IMD grid cell and NASA POWER point actually used, as it did for the original five. Zone assignment follows `docs/data/heatwave-labeling-spec.md` (coastal 37 °C, plains 40 °C). A hills place (for example Mahabaleshwar) can be added later the same way.
+
+### R2.2 `regions.yaml` schema additions (backwards-compatible)
+- `division`: one of the six divisions above. It drives grouping in the region selector, the map legend and the division filter (Part 14 R2).
+- `kind`: `city` or `area`, with `parent` set for areas (`kurla.parent = mumbai`). The map shows areas only when zoomed into Mumbai, so 18 markers do not pile up on one city.
+- Existing fields (`id`, `name`, `district`, `state`, `zone`, `lat`, `lon`) are unchanged.
+- **Conflict with the existing code (must be fixed first):** both Python loaders build regions strictly from the YAML keys: `heatwave_ml.ingestion.regions.Region(**entry)` and `heatwave_api.catalog.RegionInfo(**r)`. An unknown key raises at import/startup, so adding `division`/`kind`/`parent` as written would **break ingestion and the FastAPI service**. Fix: add the three fields to both dataclasses as optional (`division`, `kind` default `city`, `parent` default none), keep rejecting truly unknown keys so typos still fail, and expose them from the FastAPI `GET /regions`. This is a small change to Part 02 and Part 07 code, with tests, and it lands **before** any place is added.
+
+### R2.3 Data pulls for the new places (existing adapters, no new code)
+- **IMD gridded Tmax history**, 1991–2020 at least, for every new place's grid cell. This is needed for its seasonal normals (Part 03 R2). It uses the existing resumable bulk pull.
+- **NASA POWER 2000–2024** daily history per place: the training-era variables and the per-place climatology used by synthetic generator v2 (Part 03 R2), plus the historical weather that Part 14 R2's analysis imports.
+- **Open-Meteo forecast** (today + 3 days) for every place in the existing scheduled pull, and `data/sample/forecast_features.csv` regenerated so the ML service can score every place.
+- **Ordering rule:** a place is added to `regions.yaml` in the same change that lands its normals. The ML service builds features from the normals table and cannot score a place without one (master plan §4.1).
+
+### R2.3a What "actual weather data" means per source (so the map and analysis are honest)
+| Use | Source | Real? | Note |
+|---|---|---|---|
+| Map and dashboard, today + 3 days | Open-Meteo forecast (~0.1° grid) | **yes**, live forecast | distinct for every place, including the Mumbai areas |
+| Weather-history analysis, 1991–2024 | IMD gridded Tmax (1°) | **yes**, observed | the same source as the normals, so the departure is never mixed-source (`field-availability.md` §2.2). At 1°, **the five Mumbai areas share two cells**, and nearby cities may share one (Mumbai and Thane, for example). The analysis must say when places share a cell (Part 14 R2) |
+| Humidity, wind, solar and rain history | NASA POWER (~0.5°) | yes, observed | context only; never used for the temperature departure |
+| Model training | synthetic `imd-sim-v2`, calibrated on the above | no, by design (the brief) | Part 03 R2 |
+
+The landed history is git-ignored. On a new machine (including the current development Mac, where `data/raw/` is empty) it must be pulled again before normals or analysis can be built. The IMD host is unreliable (§2.7 of field-availability): pulls are resumable, and the manual-inbox fallback applies. Allow time for it.
+
+### R2.3b Scheduled refresh (so the map shows current conditions)
+Today the forecast file is the committed sample, issued 2026-09-28, and the shell flags it as stale. For the map to show actual current risk, the existing scheduled-pull path (§3 stage 4, cron / Task Scheduler entries in `docs/data/raw-landing-zone.md`) runs, every 6 hours: `heatwave-ingest forecast` → `heatwave-prepare sample`. The ML service reloads the file when its modification time changes (already built). Then the Node scoring CLI scores every place for lead 0–3 (Part 07 §B). This is the CLI from Part 11 R2 on a schedule, with no new scheduler technology. It is not scoring on page view, which was ruled out. If the job stops, data ages and is shown as stale, never presented as current.
+
+### R2.4 Effect on the rest of the plan
+- The field-availability analysis (`docs/data/field-availability.md`) gets a per-place row. Inland places are expected to have fewer gaps in solar and precipitation than the coastal monsoon cells, and any gap is recorded the same way.
+- Ingestion volume grows from 5 to 18 points. The NASA POWER pull is about 3.6× the original 45,660 rows, still a single resumable run.
+
+### R2 acceptance criteria
+- [x] Both Python region loaders accept the optional `division`, `kind`, `parent` fields and still reject unknown keys; existing tests pass, plus new ones (lands first). *(2026-10-20: `heatwave_ml.ingestion.regions` adds the fields and `validate_hierarchy` (kind ∈ city/area; an area names a city in the same file; a city has no parent). The FastAPI catalog reuses the same function, and `GET /regions` exposes the fields. 8 new tests in `ml/tests/test_ingestion_adapters.py`, plus 2 in `backend/tests/test_ml_service_role.py`.)*
+- [x] Proposed place set reviewed by the team and recorded in `config/regions.yaml` with `division`, `kind` and `parent`, and labelled in `config/README.md` as our proposal. *(Owner approved it as our provisional project scope on 2026-10-20: 14 cities across the six divisions + the 4 Mumbai areas, labelled in the file and in `config/README.md` as our selection, not examiner-mandated. The original five entries are value-identical.)*
+- [x] Which places share an IMD 1° cell is computed and recorded in `docs/data/field-availability.md`, for the analysis disclosure. *(From the landed data: 18 places → 13 distinct series; shared cells: Andheri/Dharavi/Kurla/Thane, Mumbai/Colaba, Akola/Amravati. §5 of that file.)*
+- [ ] The 6-hourly refresh (ingest → prepare sample → score all places) documented with cron and Task Scheduler entries, and run once end to end.
+- [x] Coordinates verified per place (grid cell and point recorded in `docs/data/field-availability.md`). *(The IMD cell and its distance per place are recorded (35.6–63.4 km). NASA POWER and Open-Meteo use each place's own coordinates. The centroids are approximate city centres, as for the original five.)*
+- [x] IMD history, NASA POWER history and forecast pulls landed for every new place, visible in `heatwave-ingest status`. *(2026-10-20, live sources: IMD 34/34 years 1991–2024 (223,542 rows), NASA POWER 450/450 chunks 2000–2024 (164,376 rows), Open-Meteo 18/18 places (72 rows); 0 nulls. Raw data is git-ignored, so another machine must re-pull (resumable, about 10 minutes here).)*
+- [x] Field-availability gap analysis extended to the new places and shared with Part 03. *(`docs/data/field-availability.md` §5: no field gaps for any new place.)*
+- [x] Ingestion tests still pass, plus one test that the new `regions.yaml` fields are accepted and ignored where unused. *(All existing ingestion tests pass; `test_regions_without_the_new_fields_still_load_with_defaults` and `test_division_kind_and_parent_are_read` cover both directions. The adapters use only id/lat/lon/zone, so they ignore the new fields.)*

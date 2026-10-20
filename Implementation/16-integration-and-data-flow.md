@@ -4,6 +4,8 @@
 **Feeds into:** 17 (testing), 18 (deployment)
 **Owner persona:** Whole team, coordinated by whoever owns backend/architecture
 
+> **Revision 2 (2026-10-20, examiner feedback):** the chain gains a Node.js API ↔ ML service seam and MongoDB. New checkpoints cover them and all five mandatory features (M1–M5). §2–§7 still apply. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 This part exists because building each piece correctly in isolation does not guarantee the whole system works together. Its job is to verify and wire together the full path shown in the original architecture diagram, end to end, and to catch integration gaps between the parts built independently in Parts 02–15.
@@ -72,3 +74,33 @@ Integration work means proving this chain functions as one system, not nine inde
 ## 8. Handoff note template
 
 > Integration environment at: <location>. Checkpoints passed: <list>. Issues found and routed back: <list with owning part references>. System is ready for Part 17's formal test suite to be run against it.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** ⏳ **Not started** (step 11).
+
+### R2.1 Updated path to verify
+Weather sources → preprocessing → models → prediction → SHAP → **ML service (FastAPI)** → **Node.js API ↔ MongoDB** → notification service (Node.js) → web dashboard (React: login, Maharashtra map) → official.
+
+### R2.2 Additional checkpoints
+| # | Checkpoint | Feature |
+|---|---|---|
+| 3.7 | **Node ↔ ML service:** the Node API's stored prediction equals what the ML service returned, field for field; the model version and explainer id agree across the ML service readiness, MongoDB `model_metadata`, the Analytics panel and `ml/registry/production.json` (extends §4's version-consistency risk) | M2, M5 |
+| 3.8 | **Maharashtra coverage:** every place in `regions.yaml` has normals, a forecast row and a stored prediction after the seeding CLI; the map shows each one with a colour that matches its Prediction page | M3, M4 |
+| 3.9 | **Prediction → alert:** scoring a place to HEATWAVE creates exactly one suggested draft; issuing it from the Alerts page dispatches (mock providers) and statuses update on screen within the polling interval; nothing is sent without the issue action | M5 |
+| 3.10 | **Login everywhere:** every page and data endpoint refuses an anonymous or revoked token; login → map → drill-down → issue → logout works end to end | M1 |
+| 3.11 | **MongoDB persistence and restore:** restart all services and the data survives; a `mongodump` taken during the run restores into a clean database and the dashboard shows the same snapshot | M2 |
+| 3.12 | **Analysis on real accumulated data:** imported weather history and stored predictions drive the place-comparison panel; numbers for one place match a hand-run aggregation | M3 |
+
+### R2.3 Known risks to resolve here
+- §3.1's feature-parity check runs inside the ML service; checkpoint 3.7 guarantees Node adds no second computation path.
+- The two service-to-service failure modes, ML service down and MongoDB down, must degrade as specified (Part 07 §B: stored reads still work when the ML service is down; readiness reports MongoDB down).
+- The FastAPI `app` role is retired from the integration environment only after checkpoints 3.7–3.12 pass.
+
+### R2.4 Integration environment and seed
+The three services plus MongoDB (Part 18 R2), seeded with all places, the v2 model (or the scratch-registry model until Part 05 R2 lands, clearly labelled), imported weather history, one scoring run for lead 0–3, one official account, and one suggested and one manually created alert.
+
+### R2 acceptance criteria
+- [ ] Checkpoints 3.7–3.12 verified in the shared environment and recorded in the Part 16 log.
+- [ ] R2.3 risks resolved and documented; FastAPI `app` role retired from the environment.
+- [ ] The examiner demo path (master plan §4.1) demonstrated end to end by someone other than the implementer.

@@ -4,6 +4,8 @@
 **Feeds into:** 16 (integration)
 **Owner persona:** Frontend engineer
 
+> **Revision 2 (2026-10-20, examiner feedback):** the page works for any Maharashtra place (place selection, M3/M4 context). Its content and the SHAP rules are unchanged. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Implement the detailed, single-region "Heatwave Prediction" screen — the page whose entire purpose is to make one prediction fully explainable, matching the UI mockup.
@@ -47,3 +49,19 @@ Implement the detailed, single-region "Heatwave Prediction" screen — the page 
 ## 6. Handoff note template
 
 > Prediction page implemented at route: <path>. Entry points verified: <direct nav, dashboard drill-through>. Any SHAP-rendering edge cases found: <list, if any>.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** 🟡 **Built (minimal)** (scope freeze, uncommitted): the Prediction page for any place: risk banner, inputs, the full SHAP factor list with summary, actions, lead-day tabs, explicit Recompute, inland caveat. Verified in the end-to-end demo.
+
+- **Place selection:** the page follows the global selector (now grouped by division, Part 10 R2.3), and both entry points from §3 still apply: the "Predictions" nav item, and drill-through from the dashboard's "Why this prediction?" panel, map tooltip or table "Details" link via `?region=`.
+- **Header context** shows place, district and division (for example "Chandrapur · Nagpur division"), so a state-wide user always knows which place is on screen.
+- **Lead-day tabs** (Today / +1 / +2 / +3): the latest stored prediction for each lead, from the same `GET /predictions/latest` call per lead. They default to the lead selected on the dashboard.
+- **Zone note:** the risk banner's tooltip names the IMD threshold zone used for the place (coastal 37 °C / plains 40 °C) from `regions.yaml`, so an inland place's SEVERE call is traceable to the right rule.
+- **Recompute** stays explicit (`POST /predict`, now through the Node API, which also applies the draft-suggestion rule, Part 09 R2.3). When that creates a draft alert, the page shows a link to it.
+- **Unchanged:** risk banner, input feature cards (from the API's `inputs`, never recomputed), the full SHAP factor list with positive and negative bars, the summary sentence, recommended actions, and number consistency with the dashboard.
+
+### R2 acceptance criteria
+- [ ] Page works for every place in `regions.yaml`; both entry points verified for an inland place and a Mumbai area.
+- [ ] Lead-day tabs and zone note implemented.
+- [ ] A recompute that creates a suggested draft shows a link to it.

@@ -284,3 +284,24 @@ The schema already avoids SQLite-only constructs except the triggers. The port i
 | `ON CONFLICT … DO UPDATE`, `RETURNING`, partial index | identical syntax |
 
 Code-wise: a `PostgresRepository` implementing the same `Repository` protocol, selected by the `DATABASE_URL` scheme (`connection.resolve_sqlite_path` currently rejects anything that is not `sqlite:///`). Routers and services do not change.
+
+## MongoDB (Revision 2, Part 08 R2): the application database
+
+Since Revision 2 step 4 the Node.js application API (`server/`) stores its data in **MongoDB** (M2). The SQLite schema above remains the store of the FastAPI service in role `app`, which the frontend still uses until step 5, and the reference model the MongoDB design is ported from. Design and rationale: `Implementation/08-database-design.md` Revision 2, ADR 0010.
+
+**Connection:** `MONGODB_URI` (`server/.env`), which must name its database. Local: `mongodb://127.0.0.1:27017/heatwave_local`, a database of its own, so other projects on the same server are never touched.
+
+**Migrations:** declarative, in `server/src/db/migrations.ts` (collection + `$jsonSchema` validator + indexes), recorded in `_migrations` with a checksum. local/test apply them at startup. staging/production refuse to start while any is pending: back up (`mongodump`), then run `npm run db:migrate` (`--status` only reports). An applied migration that is later edited is an error; add a new one instead.
+
+| # | Collection | Contents | Indexes | Integrity |
+|---|---|---|---|---|
+| 1 | `places` | `config/regions.yaml` mirrored at every start (`_id` = region id; `division`, `kind`, `parent`) | `division` | validator: kind ∈ city/area, coordinate ranges |
+| 2 | `predictions` | one per scoring: `region_id`, `lead_days`, `valid_date`, `issued_at`, `created_at`, `risk_class`, `model_version`, and **`data` = the ML service's PredictionOut unchanged** (served back field for field) | `latest_per_place` (region, lead, created_at desc); `by_valid_date` (valid_date, region) | validator: the exact risk vocabulary, lead 0–3, `YYYY-MM-DD`, `pred_<16 hex>` id |
+| 3 | `weather_snapshots` | conditions per place, valid date, lead and source, written whenever the API fetches weather (latest issue kept) | **unique** (region, valid_date, lead, source) | validator: numeric fields or null |
+| 4 | `model_metadata` | the ML service's `GET /model`, one document per model version, `active: true` on the current one | `active` | validator |
+
+Verified query plans: latest prediction per place → IXSCAN `latest_per_place`; latest-by-region → DISTINCT_SCAN `latest_per_place` (`server/src/db/migrations.test.ts`).
+
+**Still to come:** `users`, `revoked_tokens` (step 5); `alerts`, `notification_attempts`, `public_advisories`, `counters` (step 8); `history_summaries` (step 9); a tested `mongodump`/`mongorestore` (step 11).
+
+**SQLite note (step 4):** migration `0003_region_hierarchy.sql` adds `division`, `kind`, `parent_region_id` to `regions`, so predictions stored by the FastAPI `app` role keep round-tripping exactly now that regions carry those fields. Schema version **3**.

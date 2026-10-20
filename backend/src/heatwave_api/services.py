@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from heatwave_api.catalog import Catalog
 from heatwave_api.errors import UnknownRegion
-from heatwave_api.predictor import Predictor
+from heatwave_api.predictor import PredictionResult, Predictor
 from heatwave_api.repositories import Repository
 from heatwave_api.schemas import (
     AnalyticsOut,
@@ -43,11 +43,14 @@ def provenance(reading: WeatherReading, stale_after_hours: int, now: datetime) -
 
 
 class PredictionService:
+    """Builds PredictionOut from the model's output. ``repo`` is None in the ML-service role
+    (Part 07 §A): the Node.js API stores predictions, so nothing is kept here."""
+
     def __init__(
         self,
         predictor: Predictor,
         weather: WeatherSource,
-        repo: Repository,
+        repo: Repository | None,
         catalog: Catalog,
         stale_after_hours: int,
     ):
@@ -57,15 +60,35 @@ class PredictionService:
     def predict(self, region_id: str, lead_days: int) -> PredictionOut:
         region = region_out(self.catalog, region_id)  # 404 before touching weather or model
         reading = self.weather.reading(region_id, lead_days)
-        result = self.predictor.predict(reading)
+        return self._store(self._build(region, reading, self.predictor.predict(reading)))
+
+    def predict_many(self, items: list[tuple[str, int]]) -> list[PredictionOut]:
+        """Score (region_id, lead_days) pairs in one model + SHAP call, in order. All or
+        nothing: every region is checked, then every reading fetched, before any scoring."""
+        regions = [region_out(self.catalog, region_id) for region_id, _ in items]
+        readings = [self.weather.reading(region_id, lead) for region_id, lead in items]
+        results = self.predictor.predict_many(readings)
+        return [
+            self._store(self._build(region, reading, result))
+            for region, reading, result in zip(regions, readings, results, strict=True)
+        ]
+
+    def _store(self, prediction: PredictionOut) -> PredictionOut:
+        if self.repo is not None:
+            self.repo.add_prediction(prediction)
+        return prediction
+
+    def _build(
+        self, region: RegionOut, reading: WeatherReading, result: PredictionResult
+    ) -> PredictionOut:
         body = result.prediction
         now = datetime.now(UTC)
-        prediction = PredictionOut(
+        return PredictionOut(
             prediction_id=f"pred_{uuid4().hex[:16]}",
             created_at=now,
             region=region,
             forecast_window=ForecastWindow(
-                valid_date=reading.date, lead_days=lead_days, issued_at=reading.issued_at
+                valid_date=reading.date, lead_days=reading.lead_days, issued_at=reading.issued_at
             ),
             risk_class=body["risk_class"],
             confidence=body["confidence"],
@@ -78,8 +101,6 @@ class PredictionService:
             actions_version=self.catalog.actions_version,
             weather=provenance(reading, self.stale_after_hours, now),
         )
-        self.repo.add_prediction(prediction)
-        return prediction
 
 
 def weather_out(

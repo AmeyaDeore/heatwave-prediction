@@ -74,6 +74,7 @@ class FakePredictor:
         self.factors = [factor(1, "temp_deviation_c"), factor(2, "tmax_c")]
         self.fail: Exception | None = None
         self.calls = 0
+        self.batch_calls = 0
 
     def _risk(self, r):
         if r.tmax_c >= 45:
@@ -118,6 +119,10 @@ class FakePredictor:
             },
             inputs=self.inputs(r),
         )
+
+    def predict_many(self, readings):
+        self.batch_calls += 1  # the real predictor makes one model + SHAP call per batch
+        return [self.predict(r) for r in readings]
 
 
 class FakeWeather:

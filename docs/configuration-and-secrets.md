@@ -10,6 +10,7 @@
    | Backend | `backend/.env.example` | `backend/.env` |
    | ML pipeline | `ml/.env.example` | `ml/.env` |
    | Frontend (build-time, **public**) | `frontend/.env.example` | `frontend/.env.local` |
+   | Application API (Node.js, Revision 2) | `server/.env.example` | `server/.env` |
 
 3. Values that several concerns share conceptually (risk thresholds, monitored regions) live **once** in `config/*.yaml`. Each concern's env file points to that file with a path variable (`RISK_CONFIG_PATH`, `MONITORED_REGIONS_FILE`). The values themselves are never copied.
 4. Frontend variables are compiled into the public bundle, so they must never contain secrets.
@@ -52,6 +53,17 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 | `MODELING_DATASET_PATH`, `TEST_FRACTION`, `VALIDATION_FRACTION` | ml | no | 03 |
 | `CV_FOLDS`, `TRAINING_N_JOBS` | ml | no | 04 |
 | `VITE_API_BASE_URL`, `VITE_DEFAULT_REGION`, `VITE_DASHBOARD_POLL_INTERVAL_MS` | frontend | no (public) | 10 |
+| `APP_ENV`, `LOG_LEVEL`, `PORT` | server | no | 01 R2 |
+| `MONGODB_URI` | server | **yes** outside local (contains credentials); must name the database in its path | 01 R2 / 08 R2 |
+| `JWT_SECRET`, `JWT_TTL_MINUTES` | server (used from R2 step 5) | **yes** (secret). Startup refuses the placeholder or under 32 characters outside `local`/`test` | 01 R2 / 15 R2 |
+| `ML_SERVICE_URL`, `ML_SERVICE_TOKEN` | server (used from R2 step 4) | **yes** (token). Same refusal rule as `JWT_SECRET` | 01 R2 / 07 R2 |
+| `SERVICE_ROLE` | backend: `app` (default, full service) or `ml` (internal ML inference service) | no | 07 R2 §A |
+| `ML_SERVICE_TOKEN` | backend, role `ml`: the token the Node API must send as `X-Service-Token`; same value as the server's | **yes**. The placeholder means no check, and it is refused (as is anything under 32 characters) outside `local`/`test` | 07 R2 §A |
+| `CORS_ALLOWED_ORIGINS` | server (used from R2 step 5) | no | 01 R2 |
+| `MONITORED_REGIONS_FILE`, `ML_SERVICE_TIMEOUT_MS`, `RATE_LIMIT_PREDICT_PER_MINUTE` | server | no | 07 R2 §B (step 4) |
+| `RATE_LIMIT_LOGIN_PER_MINUTE`, `LOGIN_LOCKOUT_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | server | no | 15 R2 (step 5) |
+| `DEMO_USER_USERNAME`, `DEMO_USER_PASSWORD` | server (`local`/`test` only; the account is deactivated elsewhere) | **yes** if ever reused | 15 R2 (step 5) |
+| `TRAINING_SCOPE_FILE` | ml (which regions each synthetic generator samples) | no | 03 R2 (step 3) |
 
 ## Secret ownership & rotation
 
@@ -60,6 +72,8 @@ This is a living list. Parts 02, 07, 09, 15 and 18 add to it, and each new varia
 | Email provider API key | Backend lead (Person B) | SendGrid dashboard → Settings → API Keys (Mail Send scope only) |
 | SMS provider auth token | Backend lead (Person B) | Twilio console → Account → API keys & tokens |
 | `AUTH_SECRET_KEY` | Backend lead (Person B) | Generated locally per environment |
+| `JWT_SECRET`, `ML_SERVICE_TOKEN` (server, Revision 2) | Backend lead (Person B) | Generated per environment: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. Rotating `JWT_SECRET` signs everyone out; rotating `ML_SERVICE_TOKEN` needs the server and the ML service restarted together |
+| MongoDB credentials (in `MONGODB_URI`) | Backend lead (Person B) | The managed MongoDB's user management, one user per environment with access to that environment's database only |
 | Weather data access | Data/ML lead (Person A) | NASA POWER needs no key. IMD data access, if credentialed, belongs to Person A |
 
 **If a secret leaks** (committed, pasted in chat, or exposed in logs):

@@ -4,6 +4,8 @@
 **Feeds into:** 16 (integration)
 **Owner persona:** Frontend engineer
 
+> **Revision 2 (2026-10-20, examiner feedback, M5):** the page is the UI of the Node.js + MongoDB alert system (Part 09 R2). It adds model-suggested drafts and place targeting across Maharashtra. The four panels, the three form states and the issue safeguards are unchanged. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Implement the "Heatwave Early Warning" screen — the page authority users use to create, review, and issue alerts, and to track their multi-channel distribution status, matching the UI mockup's four-panel layout.
@@ -54,3 +56,28 @@ Implement the "Heatwave Early Warning" screen — the page authority users use t
 ## 6. Handoff note template
 
 > Alerts page implemented at route: <path>. Response Coordination data-source decision: <summary>. Confirmed alert lifecycle states supported: draft, issued, read-only history.
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** 🟡 **Built (minimal)** (scope freeze, uncommitted): alert list, new-alert form (pre-filled from the latest prediction, editable advisory, channels), Save as Draft / Issue Warning with confirmation, a detail view polling delivery. Verified in the demo. Not built: the Response Coordination panel and auto-drafts (out of the frozen scope).
+
+**Why:** M5 asks for an alert system on Node.js and MongoDB, connected to predictions. The API contract this page uses (`/alerts`, `/alert-channels`, `/alerts/{id}/attempts`) is unchanged, now served by the Node API (Part 07 §B), so the page design stays as specified.
+
+### R2.1 Model-suggested drafts
+- The alert list (§3's entry point) gains a **"Suggested by the model"** section at the top: DRAFT alerts with `origin: auto_draft` (Part 09 R2.3), each showing place, severity, valid date, probability and a link to the prediction's "why" (the Prediction page for that `prediction_id`).
+- Opening a suggestion opens the normal draft form, pre-filled (severity, target place, template advisory, default channels). The official edits, saves or issues it as with any draft. Superseded suggestions are shown greyed with the reason, never silently removed.
+- List filters: status, origin (manual / suggested), division and place. Data comes from `GET /alerts` with the new filter parameters.
+
+### R2.2 Targeting across Maharashtra
+- The target-place field uses the grouped place selector (Part 10 R2.3) and defaults, as §2.2 asks, from the highest-risk place in the latest `latest-by-region` snapshot, or from the suggestion being opened.
+- The advisory template takes the place's display name (for example "SEVERE HEATWAVE ALERT - Chandrapur: ..."). The SMS 160-character rule is unchanged.
+
+### R2.3 Unchanged, and still required
+The Alert Details, Alert Distribution, Public Advisory and Response Coordination panels; the draft / edit / issued-read-only states; "Save as Draft" never dispatching; "Issue Warning" gated by login with a confirmation step; polling while `delivery_summary.pending > 0`; per-channel FAILED detail and the audit trail. **Still open:** the §2.5 Response Coordination data-source decision. It is to be settled in this part, as Part 08 handed over. On MongoDB, option (a) is channel ids in config and option (b) is a `coordination` array on the alert document, with no extra collection either way.
+
+### R2 acceptance criteria
+- [ ] "Suggested by the model" section implemented with link to the prediction's explanation; suggestions open as pre-filled drafts.
+- [ ] Filters by status, origin, division and place.
+- [ ] Target-place default from the highest-risk place; place name in the advisory template.
+- [ ] End to end on the Node API: a suggestion is issued and its channels move from PENDING to final statuses on screen without reload.
+- [ ] Response Coordination decision recorded.

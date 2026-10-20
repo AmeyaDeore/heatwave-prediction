@@ -94,3 +94,9 @@ What the tests pin down: FK pragma reads 1 and a violation raises; `0001` create
 ## Handoff
 
 Schema migrations at `backend/src/heatwave_api/db/migrations/`. Entity-relationship summary: [docs/database/README.md](../database/README.md) §1 (every column in §2, UI cross-check in §4). Database file location per environment: `DATABASE_URL` (local `sqlite:///data/local/heatwave.db`, tests `sqlite:///:memory:`, deployed a persistent volume). The API already reads and writes through `SqliteRepository`; later parts add tables with `0002_…sql` and a test, never by editing `0001`.
+
+## Update 2026-10-20: Revision 2 step 4, MongoDB in use
+
+The first MongoDB collections (M2) are live: `server/src/db/migrations.ts` declares `places`, `predictions`, `weather_snapshots` and `model_metadata`, each with a `$jsonSchema` validator (the exact risk vocabulary, lead 0–3, date and id formats) and indexes (`latest_per_place`, `by_valid_date`, a unique snapshot key), applied in order and checksummed in `_migrations`. local/test migrate at startup; staging/production refuse while any is pending. `server/src/db/store.ts` stores each prediction's ML payload unchanged in `data`. 13 tests cover the migration runner, the validators (7 rejection cases), the unique key and the **query plans** (IXSCAN and DISTINCT_SCAN on `latest_per_place`). Live on MongoDB 7.0.31, database `heatwave_local` (the developer's other databases untouched): 73 predictions, 72 snapshots, 18 places, 1 model after the run. `docs/database/README.md` gained a MongoDB section.
+
+**SQLite (FastAPI `app` role):** migration `0003_region_hierarchy.sql` adds `division`, `kind` and `parent_region_id` to `regions`, and `SqliteRepository` reads and writes them (cities first, for the foreign key). This fixed a round-trip mismatch the step 3 region fields would otherwise have caused. Schema version 3; `test_database.py` assertions updated (version 3, region count read from config).

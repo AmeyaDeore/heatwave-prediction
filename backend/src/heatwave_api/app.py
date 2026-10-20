@@ -5,6 +5,7 @@
 or weather file; the database is SQLite (Part 08), in memory for tests.
 """
 
+import hmac
 import json
 import logging
 import time
@@ -34,7 +35,7 @@ from heatwave_api.notifier import Notifier
 from heatwave_api.predictor import Predictor, ProductionPredictor
 from heatwave_api.ratelimit import RateLimiter
 from heatwave_api.repositories import Repository
-from heatwave_api.routes import router
+from heatwave_api.routes import ml_router, router
 from heatwave_api.schemas import RegionOut, RiskClass
 from heatwave_api.services import PredictionService, model_performance
 from heatwave_api.weather import PipelineWeatherSource, WeatherSource
@@ -43,6 +44,7 @@ log = logging.getLogger("heatwave_api")
 access_log = logging.getLogger("heatwave_api.access")
 
 DEFAULT_SECRET = "change-me-local-only"  # pragma: allowlist secret
+MIN_SERVICE_TOKEN_LENGTH = 32  # the same rule the Node.js API applies to ML_SERVICE_TOKEN
 DEMO_USER_ID = "user_demo"
 _STANDARD_LOG_ATTRS = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message"}
 
@@ -76,17 +78,21 @@ def configure_logging(level: str) -> None:
 
 @dataclass
 class AppContext:
+    """Everything the routes use. In role ``ml`` (Part 07 §A) the application pieces are None:
+    no database, users, tokens, notifier, alerts or rate limiter, and the routes that would
+    use them are not mounted."""
+
     settings: Settings
     catalog: Catalog
     predictor: Predictor
     weather: WeatherSource
-    repo: Repository
-    notifier: Notifier
-    users: UserStore
-    tokens: TokenService
-    limiter: RateLimiter
+    repo: Repository | None
+    notifier: Notifier | None
+    users: UserStore | None
+    tokens: TokenService | None
+    limiter: RateLimiter | None
     predictions: PredictionService
-    alerts: AlertService
+    alerts: AlertService | None
 
 
 def _demo_users(settings: Settings) -> list[User]:
@@ -136,6 +142,14 @@ def check_startup(settings: Settings, catalog: Catalog) -> None:
             f"Risk classes in the API {get_args(RiskClass)} differ from "
             f"config/risk_classes.yaml {catalog.risk_classes}."
         )
+    if settings.app_env in ("staging", "production") and settings.service_role == "ml":
+        token = settings.ml_service_token.get_secret_value()
+        if token == DEFAULT_SECRET or len(token) < MIN_SERVICE_TOKEN_LENGTH:
+            raise RuntimeError(
+                "ML_SERVICE_TOKEN is the local default or shorter than "
+                f"{MIN_SERVICE_TOKEN_LENGTH} characters; set a real token."
+            )
+        return  # role ml has no users or notifications, so the checks below do not apply
     if settings.app_env in ("staging", "production"):
         if settings.auth_secret_key.get_secret_value() == DEFAULT_SECRET:
             raise RuntimeError("AUTH_SECRET_KEY is the local default; set a real secret.")
@@ -159,6 +173,8 @@ def build_context(
     check_startup(settings, catalog)
     predictor = predictor or ProductionPredictor.load(settings)
     weather = weather or PipelineWeatherSource(settings.weather_features_file)
+    if settings.service_role == "ml":
+        return _ml_context(settings, catalog, predictor, weather)
     if repo is None or users is None:
         db = open_database(settings, catalog)
         repo = repo or SqliteRepository(db)
@@ -209,6 +225,28 @@ def build_context(
     )
 
 
+def _ml_context(
+    settings: Settings, catalog: Catalog, predictor: Predictor, weather: WeatherSource
+) -> AppContext:
+    """Role ml: the model, explainer, weather and catalog only. Nothing is persisted."""
+    log.info("service role ml: internal ML inference service, no database")
+    return AppContext(
+        settings=settings,
+        catalog=catalog,
+        predictor=predictor,
+        weather=weather,
+        repo=None,
+        notifier=None,
+        users=None,
+        tokens=None,
+        limiter=None,
+        predictions=PredictionService(
+            predictor, weather, None, catalog, settings.weather_stale_after_hours
+        ),
+        alerts=None,
+    )
+
+
 def _error_response(request: Request, exc: ApiError) -> JSONResponse:
     body = ErrorEnvelope(
         error=ErrorBody(kind=exc.kind, code=exc.code, message=exc.message, details=exc.details),
@@ -233,24 +271,47 @@ def create_app(settings: Settings | None = None, **overrides) -> FastAPI:
             extra={"model_version": info.model_version, "explainer_id": info.explainer_id},
         )
         yield
-        app.state.ctx.alerts.dispatcher.stop()  # finish queued deliveries before closing
+        if app.state.ctx.alerts is not None:
+            app.state.ctx.alerts.dispatcher.stop()  # finish queued deliveries before closing
         if isinstance(db := getattr(app.state.ctx.repo, "db", None), Database):
             db.close()
 
+    ml_role = settings.service_role == "ml"
     app = FastAPI(
-        title="Heatwave Early Warning API",
+        title="Heatwave ML Inference Service" if ml_role else "Heatwave Early Warning API",
         version="1.0.0",
-        description="Predictions with SHAP explanations, weather, alerts and analytics.",
+        description=(
+            "Internal: predictions with SHAP explanations, weather, regions and model metadata "
+            "for the Node.js application API (Revision 2, Part 07 §A)."
+            if ml_role
+            else "Predictions with SHAP explanations, weather, alerts and analytics."
+        ),
         lifespan=lifespan,
     )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_allowed_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID", "Retry-After"],
-    )
+    if ml_role:
+        # Internal only: no browser calls it, so no CORS. A configured token is required.
+        token = settings.ml_service_token.get_secret_value()
+
+        @app.middleware("http")
+        async def service_token(request: Request, call_next):
+            if token != DEFAULT_SECRET and request.url.path != "/health":
+                supplied = request.headers.get("x-service-token", "")
+                if not hmac.compare_digest(supplied.encode(), token.encode()):
+                    return _error_response(
+                        request,
+                        HttpFailure(401, "UNAUTHORIZED", "A valid service token is required."),
+                    )
+            return await call_next(request)
+
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allowed_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+            expose_headers=["X-Request-ID", "Retry-After"],
+        )
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
@@ -331,5 +392,7 @@ def create_app(settings: Settings | None = None, **overrides) -> FastAPI:
         """Liveness only: the process is up. Readiness (model, data) is /api/v1/health/ready."""
         return {"status": "ok", "env": settings.app_env}
 
-    app.include_router(router)
+    app.include_router(ml_router)  # both roles: prediction, weather, regions, model, ready
+    if not ml_role:
+        app.include_router(router)  # role app only: alerts, analytics, auth, stored reads
     return app

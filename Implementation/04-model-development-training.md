@@ -4,6 +4,8 @@
 **Feeds into:** 05 (evaluation/selection), 06 (SHAP)
 **Owner persona:** ML engineer
 
+> **Revision 2 (2026-10-20, examiner feedback):** the existing pipeline is re-run on the v2 Maharashtra dataset (Part 03 R2). No change to models, search spaces or the artifact contract. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Build a training pipeline that produces three trained candidate models — Logistic Regression, Random Forest, and XGBoost — against the finalized dataset from Part 03, in a way that is reproducible, comparable, and packageable for serving.
@@ -62,3 +64,19 @@ For each of the three trained models, define a single artifact bundle containing
 > Three trained model artifacts available at: <paths>, each following the Section 5 bundle contract. Experiment log at: <path>. Best hyperparameters per model: <summary>. Class imbalance strategy used: <summary>. Part 05 can now run final evaluation against the held-out test set.
 
 **Filled in:** see §9 of [`docs/ml/training.md`](../docs/ml/training.md).
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** ⏳ **Not started** (step 10).
+
+**Why:** the v2 dataset (Part 03 R2) adds inland Maharashtra places. The model has to be trained on it before the Maharashtra map can show trustworthy inland risk.
+
+- **Re-run, don't redesign:** `heatwave-train run` on the v2 dataset with the same three families, search spaces, CV, imbalance strategy and bundle contract (§3–§5). The bundle already records the dataset hash, so v2 models are traceable to `imd-sim-v2`.
+- **Per-zone CV report:** the experiment log adds macro-F1 and SEVERE_HEATWAVE recall per zone (coastal / plains) on the validation split, so Part 05 can see whether one zone is carried by the other. This is extra logging, not a new tuning objective.
+- **Platform reproducibility (finding, 2026-10-20):** "bit-for-bit" holds only on the same OS/CPU architecture. On Apple Silicon, the same pinned libraries chose identical hyperparameters but produced a different XGBoost SHA-256 than the Windows/x86 production run. So the production run is trained on one **designated training platform**, recorded in the bundle and the experiment log, and its bundle is distributed as an artifact (Part 18 R2) instead of being expected to rebuild identically everywhere.
+- **The current production model stays live** until the v2 model is promoted (Part 05 R2). The app track (Parts 07–15 R2) does not wait for this re-run.
+
+### R2 acceptance criteria
+- [ ] Three v2 bundles trained on `imd-sim-v2`, logged with per-zone validation metrics.
+- [ ] Training platform recorded in each bundle and in `docs/ml/training.md`, with the platform-reproducibility note.
+- [ ] `heatwave-train verify` passes on the designated platform; a rerun there reproduces the SHA-256.

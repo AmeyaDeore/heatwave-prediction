@@ -1,6 +1,6 @@
 # ADR 0007 — Database: SQLite schema, migrations, integrity
 
-**Status:** Accepted, 2026-10-07 (Part 08)
+**Status:** Accepted, 2026-10-07 (Part 08). *Superseded in part by [ADR 0010](0010-mern-application-layer.md) (2026-10-20): MongoDB becomes the application store; this schema is the reference model it is ported from (Part 08 Revision 2).*
 
 ## Decisions
 

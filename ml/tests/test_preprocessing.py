@@ -195,3 +195,20 @@ def test_dataset_build_rejects_a_batch_landed_with_other_normals(raw, normals, c
         prepare_modeling_dataset(
             stale, normals, criteria, regions, test_fraction=0.15, validation_fraction=0.15, seed=42
         )
+
+
+# --- Training scope (Revision 2: monitoring covers Maharashtra, v1 stays five areas) ----
+
+
+def test_v1_training_scope_is_the_original_five_areas_in_order():
+    """Generator v1 draws slots across the regions it is given, in order. Monitoring grew to
+    our proposed Maharashtra places, so the v1 dataset must come from its own fixed list."""
+    from heatwave_ml.ingestion.settings import IngestionSettings
+    from heatwave_ml.preprocessing.cli import training_regions
+    from heatwave_ml.preprocessing.settings import PreparationSettings
+
+    ingest, prep = IngestionSettings.from_env(None), PreparationSettings.from_env(None)
+    v1 = training_regions(ingest, prep, SyntheticGeneratorV1.version)
+    assert [r.id for r in v1] == ["mumbai", "kurla", "andheri", "dharavi", "colaba"]
+    with pytest.raises(ValueError, match="no region list"):
+        training_regions(ingest, prep, "imd-sim-v9")

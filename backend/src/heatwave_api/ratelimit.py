@@ -46,7 +46,10 @@ def limit(bucket: str):
     """FastAPI dependency factory: ``Depends(limit("predict"))``."""
 
     def dependency(request: Request) -> None:
+        limiter = request.app.state.ctx.limiter
+        if limiter is None:  # role ml: internal, token-gated; the Node.js API limits clients
+            return
         client = request.client.host if request.client else "unknown"
-        request.app.state.ctx.limiter.check(bucket, client)
+        limiter.check(bucket, client)
 
     return dependency

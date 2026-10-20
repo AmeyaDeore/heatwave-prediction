@@ -1,6 +1,6 @@
 # ADR 0008: Notification service
 
-- **Status:** Accepted
+- **Status:** Accepted. *Superseded in part by [ADR 0010](0010-mern-application-layer.md) (2026-10-20): the service is ported to Node.js on MongoDB with the same decisions below (Part 09 Revision 2).*
 - **Date:** 2026-10-07
 - **Part:** 09 (notification service)
 

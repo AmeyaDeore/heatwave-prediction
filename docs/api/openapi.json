@@ -53,27 +53,6 @@
         }
       }
     },
-    "/api/v1/alert-channels": {
-      "get": {
-        "tags": [
-          "reference"
-        ],
-        "summary": "List Channels",
-        "operationId": "list_channels_api_v1_alert_channels_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_list_ChannelOut__"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/predict": {
       "post": {
         "tags": [
@@ -109,6 +88,178 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/predict/batch": {
+      "post": {
+        "tags": [
+          "prediction"
+        ],
+        "summary": "Predict Batch",
+        "description": "Score several region/lead pairs in one model + SHAP call (Revision 2, Part 07 §A).\nResults come back in request order. All or nothing: one unknown region (404) or one\nmissing reading (503) fails the batch.",
+        "operationId": "predict_batch_api_v1_predict_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_PredictionOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model": {
+      "get": {
+        "tags": [
+          "reference"
+        ],
+        "summary": "Model",
+        "description": "The loaded production model's version, explainer and held-out test metrics, static\nper model version (Part 05). The Node.js API records it in MongoDB (Part 08 R2).",
+        "operationId": "model_api_v1_model_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ModelPerformance_"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather": {
+      "get": {
+        "tags": [
+          "weather"
+        ],
+        "summary": "Weather",
+        "description": "Conditions for one region, or for every monitored region when `region_id` is omitted.",
+        "operationId": "weather_api_v1_weather_get",
+        "parameters": [
+          {
+            "name": "region_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{1,40}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A region id from config/regions.yaml",
+              "title": "Region Id"
+            },
+            "description": "A region id from config/regions.yaml"
+          },
+          {
+            "name": "lead_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 3,
+              "minimum": 0,
+              "default": 0,
+              "title": "Lead Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_WeatherOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Ready",
+        "description": "Readiness: model loaded (guaranteed by startup) and weather data present and fresh.",
+        "operationId": "ready_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ReadinessOut_"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alert-channels": {
+      "get": {
+        "tags": [
+          "reference"
+        ],
+        "summary": "List Channels",
+        "operationId": "list_channels_api_v1_alert_channels_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_ChannelOut__"
                 }
               }
             }
@@ -197,71 +348,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Envelope_PredictionOut_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/weather": {
-      "get": {
-        "tags": [
-          "weather"
-        ],
-        "summary": "Weather",
-        "description": "Conditions for one region, or for every monitored region when `region_id` is omitted.",
-        "operationId": "weather_api_v1_weather_get",
-        "parameters": [
-          {
-            "name": "region_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "pattern": "^[a-z][a-z0-9_]{1,40}$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "A region id from config/regions.yaml",
-              "title": "Region Id"
-            },
-            "description": "A region id from config/regions.yaml"
-          },
-          {
-            "name": "lead_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 3,
-              "minimum": 0,
-              "default": 0,
-              "title": "Lead Days"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_list_WeatherOut__"
                 }
               }
             }
@@ -758,28 +844,6 @@
           }
         }
       }
-    },
-    "/api/v1/health/ready": {
-      "get": {
-        "tags": [
-          "health"
-        ],
-        "summary": "Ready",
-        "description": "Readiness: model loaded (guaranteed by startup) and weather data present and fresh.",
-        "operationId": "ready_api_v1_health_ready_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_ReadinessOut_"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -1099,7 +1163,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "AlertUpdate",
-        "description": "Edit a DRAFT/READY alert and/or move it along DRAFT \u2192 READY \u2192 ISSUED."
+        "description": "Edit a DRAFT/READY alert and/or move it along DRAFT → READY → ISSUED."
       },
       "AnalyticsOut": {
         "properties": {
@@ -1345,6 +1409,28 @@
         ],
         "title": "Envelope[AnalyticsOut]"
       },
+      "Envelope_ModelPerformance_": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ModelPerformance"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[ModelPerformance]"
+      },
       "Envelope_PredictionOut_": {
         "properties": {
           "status": {
@@ -1510,6 +1596,32 @@
           "meta"
         ],
         "title": "Envelope[list[NotificationAttemptOut]]"
+      },
+      "Envelope_list_PredictionOut__": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionOut"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[list[PredictionOut]]"
       },
       "Envelope_list_RegionOut__": {
         "properties": {
@@ -1967,7 +2079,27 @@
           "duration_ms"
         ],
         "title": "NotificationAttemptOut",
-        "description": "One dispatch attempt from the audit trail (Part 09 \u00a76)."
+        "description": "One dispatch attempt from the audit trail (Part 09 §6)."
+      },
+      "PredictBatchRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PredictRequest"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PredictBatchRequest",
+        "description": "Several places/leads scored in one model + SHAP call (Part 07 §A). All or nothing:\nan unknown region or missing weather for any item fails the whole batch."
       },
       "PredictRequest": {
         "properties": {
@@ -2160,6 +2292,37 @@
           "lon": {
             "type": "number",
             "title": "Lon"
+          },
+          "division": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Division"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "city",
+              "area"
+            ],
+            "title": "Kind",
+            "default": "city"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
           }
         },
         "type": "object",

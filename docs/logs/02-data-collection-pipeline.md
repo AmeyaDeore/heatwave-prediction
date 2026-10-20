@@ -65,3 +65,15 @@ Built the ingestion layer: four real source adapters (IMD, NASA POWER, Open-Mete
 ## Handoff
 
 Raw data at `data/raw/<source>/<chunk key>/<run_id>.parquet`, read with `RawLandingZone(...).read_latest(source)`. The region list is `config/regions.yaml`. Part 03 can build preprocessing against this raw shape.
+
+## Update 2026-10-20: Revision 2 step 2, region hierarchy fields
+
+`heatwave_ml.ingestion.regions.Region` gains the optional `division`, `kind` (default `city`) and `parent`, plus `validate_hierarchy`: the kind must be `city` or `area`, an area must name a city in the same file, and a city cannot have a parent. Unknown keys still raise `TypeError`, so a typo such as `divison` cannot be silently ignored. The FastAPI catalog reuses the same function, so ingestion and the API cannot disagree. `config/regions.yaml` is **unchanged**: the Maharashtra places land in step 3, together with their normals. Tests: 8 new in `ml/tests/test_ingestion_adapters.py`, and all existing ingestion tests pass.
+
+## Update 2026-10-20: Revision 2 step 3, Maharashtra places and real data pulls
+
+- **Places:** `config/regions.yaml` now lists **our proposed selection** of 18 Maharashtra places (14 cities across the six divisions + the 4 Mumbai areas, which become `kind: area, parent: mumbai`). It is labelled in the file and in `config/README.md` as the project's selection, not an examiner-specified list. The original five entries are value-identical (checked programmatically).
+- **Pulls (live, 2026-10-20, this Mac):** IMD gridded Tmax 34/34 years 1991–2024 (223,542 rows, ~35 s: one all-India file per year, so 18 places cost the same as 5); NASA POWER 450/450 place-years 2000–2024 (164,376 rows; one connection reset retried automatically); Open-Meteo forecast 18/18 places (72 rows). **0 nulls** in either history. Nothing was synthesised or filled in.
+- **IMD cells:** 18 places → 13 distinct series (shared: Andheri/Dharavi/Kurla/Thane; Mumbai/Colaba; Akola/Amravati). Recorded in `docs/data/field-availability.md` §5 for the analysis disclosure.
+- `data/sample/forecast_features.csv` (committed) is regenerated through the inference path for all 18 places, issued 2026-10-20, so readiness reports `weather_data: ok` instead of `stale`.
+- **Not done:** the 6-hourly scheduled refresh (step 6). Until then the sample ages and is again flagged stale after 36 h.

@@ -1,8 +1,21 @@
 # Monitored regions (Part 02, Section "location list is configuration").
 # Coordinates are approximate centroids. Part 02 verifies them and Part 08 seeds
 # the `regions` table from this file.
+#
+# Revision 2 (Part 02 R2.1): monitoring covers places across Maharashtra.
+# THE MAHARASHTRA PLACES BELOW ARE OUR PROJECT'S PROPOSED SELECTION, NOT AN
+# EXAMINER-SPECIFIED LIST. The examiner asked for a Maharashtra map and places in
+# Maharashtra without naming cities. Selection rule: at least one place in each of the six
+# administrative divisions, favouring district headquarters with known pre-monsoon heat
+# exposure, plus the original Mumbai areas. Add or remove places here; a place must land
+# together with its seasonal normals (config/seasonal_normals.csv, Part 03 R2.1).
+#
+# Fields: division = administrative division; kind = city | area; parent = an area's city.
+# Zones follow docs/data/heatwave-labeling-spec.md (coastal 37 °C, plains 40 °C).
+# Which places a TRAINING dataset uses is config/training_scope.yaml, not this file.
 
 regions:
+  # --- Konkan division (existing Mumbai areas, unchanged values) ---
   - id: mumbai
     name: Mumbai
     district: Mumbai City
@@ -10,6 +23,8 @@ regions:
     zone: coastal
     lat: 18.9750
     lon: 72.8258
+    division: Konkan
+    kind: city
   - id: kurla
     name: Kurla
     district: Mumbai Suburban
@@ -17,6 +32,9 @@ regions:
     zone: coastal
     lat: 19.0726
     lon: 72.8845
+    division: Konkan
+    kind: area
+    parent: mumbai
   - id: andheri
     name: Andheri
     district: Mumbai Suburban
@@ -24,6 +42,9 @@ regions:
     zone: coastal
     lat: 19.1136
     lon: 72.8697
+    division: Konkan
+    kind: area
+    parent: mumbai
   - id: dharavi
     name: Dharavi
     district: Mumbai City
@@ -31,6 +52,9 @@ regions:
     zone: coastal
     lat: 19.0380
     lon: 72.8538
+    division: Konkan
+    kind: area
+    parent: mumbai
   - id: colaba
     name: Colaba
     district: Mumbai City
@@ -38,3 +62,112 @@ regions:
     zone: coastal
     lat: 18.9067
     lon: 72.8147
+    division: Konkan
+    kind: area
+    parent: mumbai
+
+  # --- Proposed Maharashtra places (Revision 2, our selection) ---
+  - id: thane
+    name: Thane
+    district: Thane
+    state: Maharashtra
+    zone: coastal
+    lat: 19.2183
+    lon: 72.9781
+    division: Konkan
+  - id: ratnagiri
+    name: Ratnagiri
+    district: Ratnagiri
+    state: Maharashtra
+    zone: coastal
+    lat: 16.9902
+    lon: 73.3120
+    division: Konkan
+  - id: pune
+    name: Pune
+    district: Pune
+    state: Maharashtra
+    zone: plains
+    lat: 18.5204
+    lon: 73.8567
+    division: Pune
+  - id: solapur
+    name: Solapur
+    district: Solapur
+    state: Maharashtra
+    zone: plains
+    lat: 17.6599
+    lon: 75.9064
+    division: Pune
+  - id: kolhapur
+    name: Kolhapur
+    district: Kolhapur
+    state: Maharashtra
+    zone: plains
+    lat: 16.7050
+    lon: 74.2433
+    division: Pune
+  - id: nashik
+    name: Nashik
+    district: Nashik
+    state: Maharashtra
+    zone: plains
+    lat: 19.9975
+    lon: 73.7898
+    division: Nashik
+  - id: jalgaon
+    name: Jalgaon
+    district: Jalgaon
+    state: Maharashtra
+    zone: plains
+    lat: 21.0077
+    lon: 75.5626
+    division: Nashik
+  - id: sambhajinagar
+    name: Chhatrapati Sambhajinagar
+    district: Chhatrapati Sambhajinagar
+    state: Maharashtra
+    zone: plains
+    lat: 19.8762
+    lon: 75.3433
+    division: Chhatrapati Sambhajinagar
+  - id: nanded
+    name: Nanded
+    district: Nanded
+    state: Maharashtra
+    zone: plains
+    lat: 19.1383
+    lon: 77.3210
+    division: Chhatrapati Sambhajinagar
+  - id: amravati
+    name: Amravati
+    district: Amravati
+    state: Maharashtra
+    zone: plains
+    lat: 20.9374
+    lon: 77.7796
+    division: Amravati
+  - id: akola
+    name: Akola
+    district: Akola
+    state: Maharashtra
+    zone: plains
+    lat: 20.7002
+    lon: 77.0082
+    division: Amravati
+  - id: nagpur
+    name: Nagpur
+    district: Nagpur
+    state: Maharashtra
+    zone: plains
+    lat: 21.1458
+    lon: 79.0882
+    division: Nagpur
+  - id: chandrapur
+    name: Chandrapur
+    district: Chandrapur
+    state: Maharashtra
+    zone: plains
+    lat: 19.9615
+    lon: 79.2961
+    division: Nagpur

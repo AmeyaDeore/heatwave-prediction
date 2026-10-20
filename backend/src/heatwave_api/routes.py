@@ -2,9 +2,11 @@
 
 Protected (bearer token): POST/PATCH alerts and the delivery audit trail. Everything
 else is read-only.
-Rate limited: predict, alert writes and login.
+Rate limited: predict, alert writes and login (role `app`; role `ml` is internal and
+token-gated, and the Node.js API applies the public limits).
 """
 
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -25,7 +27,9 @@ from heatwave_api.schemas import (
     AnalyticsOut,
     ChannelOut,
     LoginRequest,
+    ModelPerformance,
     NotificationAttemptOut,
+    PredictBatchRequest,
     PredictionOut,
     PredictRequest,
     ReadinessOut,
@@ -36,6 +40,10 @@ from heatwave_api.schemas import (
     WeatherOut,
 )
 
+# Revision 2 (Part 07 §A): `ml_router` holds what the internal ML inference service serves
+# (prediction, SHAP, weather, regions, model metadata, readiness) and is mounted in both
+# service roles. `router` holds the application endpoints, mounted only in role `app`.
+ml_router = APIRouter(prefix="/api/v1")
 router = APIRouter(prefix="/api/v1")
 
 RegionQuery = Annotated[RegionId | None, Query(description="A region id from config/regions.yaml")]
@@ -52,7 +60,7 @@ def ok(request: Request, data):
 # -- reference data -------------------------------------------------------------------
 
 
-@router.get("/regions", response_model=Envelope[list[RegionOut]], tags=["reference"])
+@ml_router.get("/regions", response_model=Envelope[list[RegionOut]], tags=["reference"])
 def list_regions(request: Request):
     return ok(request, [RegionOut(**r.__dict__) for r in ctx(request).catalog.regions.values()])
 
@@ -65,7 +73,7 @@ def list_channels(request: Request):
 # -- prediction -----------------------------------------------------------------------
 
 
-@router.post(
+@ml_router.post(
     "/predict",
     response_model=Envelope[PredictionOut],
     tags=["prediction"],
@@ -80,6 +88,33 @@ def predict(body: PredictRequest, request: Request):
         "lead_days": body.lead_days,
     }
     return ok(request, prediction)
+
+
+@ml_router.post(
+    "/predict/batch",
+    response_model=Envelope[list[PredictionOut]],
+    tags=["prediction"],
+    dependencies=[Depends(limit("predict"))],
+)
+def predict_batch(body: PredictBatchRequest, request: Request):
+    """Score several region/lead pairs in one model + SHAP call (Revision 2, Part 07 §A).
+    Results come back in request order. All or nothing: one unknown region (404) or one
+    missing reading (503) fails the batch."""
+    predictions = ctx(request).predictions.predict_many(
+        [(item.region_id, item.lead_days) for item in body.items]
+    )
+    request.state.log_fields = {
+        "batch_size": len(predictions),
+        "risk_classes": dict(Counter(p.risk_class for p in predictions)),
+    }
+    return ok(request, predictions)
+
+
+@ml_router.get("/model", response_model=Envelope[ModelPerformance], tags=["reference"])
+def model(request: Request):
+    """The loaded production model's version, explainer and held-out test metrics, static
+    per model version (Part 05). The Node.js API records it in MongoDB (Part 08 R2)."""
+    return ok(request, services.model_performance(ctx(request).predictor))
 
 
 @router.get(
@@ -113,7 +148,7 @@ def get_prediction(request: Request, prediction_id: str):
 # -- weather --------------------------------------------------------------------------
 
 
-@router.get("/weather", response_model=Envelope[list[WeatherOut]], tags=["weather"])
+@ml_router.get("/weather", response_model=Envelope[list[WeatherOut]], tags=["weather"])
 def weather(
     request: Request,
     region_id: RegionQuery = None,
@@ -124,10 +159,20 @@ def weather(
     if region_id is not None:
         services.region_out(c.catalog, region_id)
         readings = [c.weather.reading(region_id, lead_days)]
-    else:
+    elif lead_days == 0:
         readings = [r for r in c.weather.current() if r.region_id in c.catalog.regions]
-        if not readings:
-            raise UpstreamUnavailable("No current weather data is available for any region.")
+    else:
+        # Every monitored region at the requested lead (Revision 2: the Maharashtra map shows
+        # any lead day). Before this fix, omitting region_id ignored lead_days and always
+        # returned today's readings.
+        readings = []
+        for rid in c.catalog.regions:
+            try:
+                readings.append(c.weather.reading(rid, lead_days))
+            except UpstreamUnavailable:
+                continue  # a region without a row for this lead is left out, as for lead 0
+    if region_id is None and not readings:
+        raise UpstreamUnavailable("No current weather data is available for any region.")
     return ok(
         request,
         [
@@ -261,7 +306,7 @@ def me(request: Request, user: Annotated[User, Depends(current_user)]):
 # -- health ---------------------------------------------------------------------------
 
 
-@router.get("/health/ready", response_model=Envelope[ReadinessOut], tags=["health"])
+@ml_router.get("/health/ready", response_model=Envelope[ReadinessOut], tags=["health"])
 def ready(request: Request, response: Response):
     """Readiness: model loaded (guaranteed by startup) and weather data present and fresh."""
     c = ctx(request)
@@ -276,7 +321,8 @@ def ready(request: Request, response: Response):
     except ApiError:
         state = "unavailable"
     data = ReadinessOut(
-        ready=state != "unavailable" and c.repo.ping(),
+        # Role ml has no database (repo is None), so only the model and weather count.
+        ready=state != "unavailable" and (c.repo is None or c.repo.ping()),
         model_version=c.predictor.info.model_version,
         explainer_id=c.predictor.info.explainer_id,
         weather_data=state,

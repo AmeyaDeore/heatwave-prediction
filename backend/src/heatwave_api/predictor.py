@@ -42,6 +42,10 @@ class Predictor(Protocol):
 
     def predict(self, reading: WeatherReading) -> PredictionResult: ...
 
+    def predict_many(self, readings: list[WeatherReading]) -> list[PredictionResult]:
+        """The same as ``predict`` for each reading, in order, in one model + SHAP call."""
+        ...
+
     def inputs(self, reading: WeatherReading) -> dict[str, float | None]:
         """Just the feature values (normal and deviation included), without scoring."""
         ...
@@ -80,7 +84,7 @@ class ProductionPredictor:
         )
         return cls(explainer, normals, info)
 
-    def _features(self, reading: WeatherReading) -> pd.DataFrame:
+    def _features(self, readings: list[WeatherReading]) -> pd.DataFrame:
         raw = pd.DataFrame(
             [
                 {
@@ -93,6 +97,7 @@ class ProductionPredictor:
                     "solar_mj_m2": reading.solar_mj_m2,
                     "precip_mm": reading.precip_mm,
                 }
+                for reading in readings
             ]
         )
         try:
@@ -101,18 +106,26 @@ class ProductionPredictor:
             raise PredictionFailed("These conditions could not be turned into features.") from exc
 
     @staticmethod
-    def _inputs(features: pd.DataFrame) -> dict[str, float | None]:
-        row = features.iloc[0]
+    def _inputs(features: pd.DataFrame, row_index: int = 0) -> dict[str, float | None]:
+        row = features.iloc[row_index]
         return {c: None if pd.isna(row[c]) else round(float(row[c]), 4) for c in FEATURE_COLUMNS}
 
     def inputs(self, reading: WeatherReading) -> dict[str, float | None]:
-        return self._inputs(self._features(reading))
+        return self._inputs(self._features([reading]))
 
     def predict(self, reading: WeatherReading) -> PredictionResult:
-        features = self._features(reading)
+        return self.predict_many([reading])[0]
+
+    def predict_many(self, readings: list[WeatherReading]) -> list[PredictionResult]:
+        """Rows are scored and explained together; each result is what ``predict`` would give
+        for that reading alone (SHAP values are computed per row)."""
+        features = self._features(readings)
         try:
             with self._lock:
-                explanation = self.explainer.explain(model_input(features))[0]
+                explanations = self.explainer.explain(model_input(features))
         except (ValueError, KeyError, ExplainerError) as exc:
             raise PredictionFailed("The model could not score these conditions.") from exc
-        return PredictionResult(prediction=explanation.to_dict(), inputs=self._inputs(features))
+        return [
+            PredictionResult(prediction=explanation.to_dict(), inputs=self._inputs(features, i))
+            for i, explanation in enumerate(explanations)
+        ]

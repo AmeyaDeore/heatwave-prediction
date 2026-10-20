@@ -73,3 +73,64 @@ See [ADR 0006](../decisions/0006-backend-api.md) for the full table. The ones th
 ## Handoff
 
 API on `http://localhost:8000/api/v1`. Contract: [docs/api/README.md](../api/README.md) and `/openapi.json`. Writes (`POST`/`PATCH /alerts`) need `Authorization: Bearer <token>` from `POST /auth/login` (local demo user `official` / `demo-official-local`). `POST /predict` carries the Part 06 explanation unchanged (all 7 ranked factors), `inputs`, `forecast_window`, `recommended_actions` and weather provenance. Part 08's owner implements `Repository` from `backend/src/heatwave_api/repositories.py` to persist predictions (with `model_version` and `explainer_id`), factors and alerts. Part 10 can build against the documented contract now.
+
+## Update 2026-10-20: Revision 2 step 2, §A ML inference service role
+
+| | |
+|---|---|
+| Plan | [Part 07 Revision 2 §A](../../Implementation/07-backend-api-architecture.md#revision-2--examiner-feedback-2026-10-20), master plan §4.1 step 2 |
+| Status | §A complete. §B (Node.js application API) not started |
+| Branch | `part-10/frontend-architecture` (uncommitted) |
+| Tests | 42 new (`backend/tests/test_ml_service_role.py`); Python suite 281 → 331 passed, same 3 skipped and the same 6 pre-existing errors |
+
+**What changed (additive; role `app` behaves exactly as before):**
+- `config.py`: `SERVICE_ROLE` (`app` default | `ml`) and `ML_SERVICE_TOKEN`.
+- `app.py`: in role `ml`, `_ml_context` builds the model, explainer, weather and catalog only (no database, users, tokens, notifier, alerts or limiter). There is no CORS, and a service-token middleware runs inside the request-id middleware, so rejections still get a request id and a log line. `/health` is exempt, and comparison is constant-time. `check_startup` refuses the placeholder or a token under 32 characters outside local/test in role `ml`. The lifespan tolerates having no alerts.
+- `routes.py`: the endpoints split into `ml_router` (regions, predict, predict/batch, weather, model, health/ready; mounted in both roles) and `router` (the rest; role `app` only). The decorators moved; no route logic changed. New `POST /predict/batch` and `GET /model`. Readiness ignores the database when there is none.
+- `services.py`: `PredictionService` builds predictions through one `_build` for single and batch, and stores only when it has a repository. `predict_many` is all or nothing: it checks every region, then fetches every reading, before scoring.
+- `predictor.py`: `predict_many` makes one `explain` call over all rows (the explainer already returns one explanation per row, in order); `predict` delegates to it.
+- `ratelimit.py`: no limiter in role `ml` (the Node API applies the public limits).
+- `schemas.py`: `PredictBatchRequest` (1–100 items, strict), and the `RegionOut` fields `division`/`kind`/`parent`.
+- `docs/api/openapi.json` regenerated: +2 paths, +3 schemas, +3 optional `RegionOut` properties; nothing removed or changed (path order differs because `ml_router` mounts first). `docs/api/README.md`, `backend/.env.example` and `docs/configuration-and-secrets.md` updated.
+
+**Verification:**
+```
+pytest (repo)                         -> 331 passed, 3 skipped, 6 errors (test_production_model.py, pre-existing)
+ruff check / ruff format --check      -> clean
+frontend npm test                     -> 145 passed (contract test passes against the regenerated openapi.json)
+server npm test                       -> 37 passed
+real model (scratch registry, role ml): 5 regions x 4 leads, batch vs 20 single /predict
+  -> 0 differences in risk_class, confidence, probabilities, inputs, explanation, recommended_actions
+  -> batch 159 ms vs 291 ms; /model, readiness 200; /api/v1/alerts 404
+detect-secrets on changed files       -> clean
+```
+
+**Handoff:** the Node.js API (step 4) can call `POST /api/v1/predict/batch` and `GET /api/v1/model` with `X-Service-Token`, against `SERVICE_ROLE=ml`. The frontend still uses role `app`.
+
+## Update 2026-10-20: Revision 2 step 4, §B Node.js API for places, weather and predictions
+
+**Built (`server/`, uncommitted):**
+- `catalog.ts`: places from `config/regions.yaml`, with the same city/area rules as the Python loaders.
+- `ml/client.ts`: `HttpMlClient` with `X-Service-Token` and a timeout. Client and upstream errors pass through; anything unreachable becomes 503 `ML_SERVICE_UNAVAILABLE`.
+- `services/predictions.ts`: predict, batch (default all places × lead 0–3, chunks of 100, `only_missing` = not yet scored on the current forecast issue), latest, latest-by-region, by id, weather.
+- `http/routes.ts`, `validate.ts`, `ratelimit.ts`: strict zod bodies, 422 without echoing input, 400 for malformed JSON, predict rate limit with Retry-After.
+- `bootstrap.ts`: migrations, the places mirror, model recording with retry.
+- `main.ts`: serves at once and prepares MongoDB in the background, so MongoDB down gives 503 `DATABASE_UNAVAILABLE`, never a 500.
+- CLIs `score-all` and `db:migrate`.
+- One new dependency, from the agreed budget: `js-yaml` (it bundles its own types).
+
+**Fixed in FastAPI (pre-existing bug, found by the live run):** `GET /weather` without `region_id` ignored `lead_days` and always returned lead 0. It now honours the lead; lead 0 is unchanged. 5 new tests.
+
+**Verification:**
+```
+server: typecheck, lint, format clean; npm test -> 7 files, 94 passed
+python: 337 passed, 3 skipped, 6 pre-existing errors (test_production_model.py)
+live (real XGBoost model via scratch registry, FastAPI role ml with a 48-char token, local MongoDB 7.0.31, db heatwave_local):
+  ML service without token -> 401; Node readiness -> ready, database ok, ml_service ok, model xgboost-20261020T104511Z-d89b8a
+  migrations 1-4 applied at startup; 18 places mirrored; model recorded
+  npm run score-all -> 72 pairs in 600 ms; --only-missing -> 0 scored, 72 skipped
+  checkpoint 3.7: /predict response == latest == by id == MongoDB data (12 fields, 7 SHAP factors)
+  /weather for lead 0..3 -> 18 places each, correct lead; 72 snapshots stored
+  ML service stopped -> predict 503 ML_SERVICE_UNAVAILABLE, stored reads 200, readiness 503
+```
+**Open in §B:** login, CORS and the frontend switch (step 5); the generated `openapi.json` (step 5); alerts (step 8); analytics (step 9).

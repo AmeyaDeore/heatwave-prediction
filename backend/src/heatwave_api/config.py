@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     app_env: Literal["local", "staging", "production", "test"] = "local"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
+    # Revision 2 (Part 07 §A). app = the full service as built in Parts 07-09 (unchanged).
+    # ml = the internal ML inference service the Node.js API calls: prediction, SHAP, live
+    # features, weather, regions and model metadata only; no database, alerts or auth.
+    service_role: Literal["app", "ml"] = "app"
+    # Role ml: when set to a real value, every request except /health must send it as
+    # X-Service-Token. Outside local/test the placeholder is refused at startup.
+    ml_service_token: SecretStr = SecretStr("change-me-local-only")  # pragma: allowlist secret
+
     # Part 08. Relative sqlite paths resolve from the repo root; sqlite:///:memory: for tests.
     database_url: str = "sqlite:///data/local/heatwave.db"
     database_backup_dir: Path = Path("data/local/backups")

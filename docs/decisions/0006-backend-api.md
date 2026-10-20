@@ -1,6 +1,6 @@
 # ADR 0006 — Backend API: conventions, weather source, seams
 
-**Status:** Accepted, 2026-09-29 (Part 07)
+**Status:** Accepted, 2026-09-29 (Part 07). *Superseded in part by [ADR 0010](0010-mern-application-layer.md) (2026-10-20): the public `/api/v1` moves to a Node.js API that keeps these conventions, and this service becomes the internal ML inference service.*
 
 ## Decisions
 

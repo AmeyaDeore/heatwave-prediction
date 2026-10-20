@@ -4,6 +4,8 @@
 **Feeds into:** 06 (SHAP), 07 (backend API — consumes the selected model)
 **Owner persona:** ML engineer
 
+> **Revision 2 (2026-10-20, examiner feedback):** a new evaluation and promotion on the v2 dataset, with per-zone (coastal / plains) results added to the report and to the model metadata the Analytics page shows. See [Revision 2](#revision-2--examiner-feedback-2026-10-20).
+
 ## 1. Objective
 
 Evaluate the three trained candidate models against a single, fair, held-out test set; select the one to ship; and produce the documentation/report artifacts referenced elsewhere in the project (the comparison table shown in the results slide).
@@ -68,3 +70,22 @@ Produce the model comparison table referenced in the project results (Model / Ac
 > Selected production model: <model name + version id>, located at: <path>. Comparison table: <summary/link>. Justification: <one-paragraph summary>. Part 06 should build the SHAP explainer against this specific artifact.
 
 **Filled in:** see §8 of [`docs/ml/evaluation.md`](../docs/ml/evaluation.md).
+
+## Revision 2 — examiner feedback (2026-10-20)
+
+**R2 status (2026-10-20):** ⏳ **Not started** (step 10).
+
+**Why:** promoting a model that will colour every Maharashtra place on the map needs evidence that it works inland, not just on Mumbai.
+
+- **New evaluation** of the v2 bundles on the v2 test split, scored once, under the existing policy (`SEL-v1`) or a successor committed **before** scoring (the evaluator already enforces this).
+- **Per-zone results** in the report: per-class P/R/F1 and the SEVERE → NORMAL count per zone. Recommended new hard gate, to be committed in the policy before scoring: **SEVERE_HEATWAVE → NORMAL = 0 in each zone**, not only overall.
+- **Real-history check** on the extended `observed_dataset.parquet` (Part 03 R2), reported as false-alarm rates per place.
+- **Promotion** through `heatwave-registry promote`, with the reason "Revision 2: Maharashtra places". The previous model `xgboost-20260928T100821Z-0bde51` stays archived as the rollback target.
+- **Model metadata for the app:** the promotion pointer's metrics, including per-zone figures, are what the ML service exposes and the Node API records in MongoDB `model_metadata` (Parts 07 §A, 08 R2). The Analytics page shows the version and the per-zone figures (Part 14 R2).
+
+### R2 acceptance criteria
+- [ ] Policy change (if any) committed before the v2 test split is scored.
+- [ ] v2 evaluation report with overall, per-class and per-zone metrics, confusion matrices per zone, calibration, latency.
+- [ ] Per-zone dangerous-failure gate passed by the selected model.
+- [ ] v2 model promoted. The previous production model archived and listed in `heatwave-registry status`.
+- [ ] `docs/ml/evaluation.md` updated with the v2 comparison table and justification.

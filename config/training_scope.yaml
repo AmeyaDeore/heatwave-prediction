@@ -1,0 +1,19 @@
+# Which monitored regions each synthetic training generator samples (Part 03).
+#
+# config/regions.yaml lists every place the system MONITORS. Since Revision 2 that is our
+# proposed set of Maharashtra places (not an examiner-specified list). A training dataset is
+# defined over a fixed list of regions instead, because the generator draws (region, date)
+# slots across exactly the regions it is given, in this order. Changing the list changes
+# every row.
+#
+#   imd-sim-v1: the dataset behind the current production model, data/heatwave_dataset.csv
+#               (SHA-256 7412ab78...). Five Mumbai areas, in their original regions.yaml order.
+#               Do not edit: it would silently produce a different "v1" dataset.
+#   imd-sim-v2: added by Revision 2 step 10 (Part 03 R2.2), over the Maharashtra places.
+
+imd-sim-v1:
+  - mumbai
+  - kurla
+  - andheri
+  - dharavi
+  - colaba

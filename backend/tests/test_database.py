@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from heatwave_api.app import create_app
+from heatwave_api.catalog import Catalog
 from heatwave_api.config import Settings
 from heatwave_api.db import cli
 from heatwave_api.db.connection import DatabaseError, connect, resolve_sqlite_path
@@ -91,7 +92,8 @@ def test_migrations_create_every_table_and_are_applied_once(conn):
     assert names >= TABLES
     assert apply_migrations(conn) == []  # second run: nothing to do
     status = migration_status(conn)
-    assert status.current == 2 and status.pending == []  # 0001 schema, 0002 notifications
+    # 0001 schema, 0002 notifications, 0003 region hierarchy (Revision 2)
+    assert status.current == 3 and status.pending == []
 
 
 def test_planned_indexes_exist(conn):
@@ -285,9 +287,9 @@ def test_cli_migrate_status_seed_import_and_backup(file_settings, tmp_path, monk
     assert cli.main(["import-weather", str(csv_path), "--source", "imd"]) == 0  # idempotent
     assert cli.main(["status"]) == 0
     out = capsys.readouterr().out
-    assert "regions upserted: 5" in out
+    assert f"regions upserted: {len(Catalog.load(Settings(_env_file=None)).regions)}" in out
     assert "inserted: 2, already present: 0" in out and "inserted: 0, already present: 2" in out
-    assert "version:  2" in out
+    assert "version:  3" in out
 
     backups = tmp_path / "backups"
     for _ in range(3):

@@ -21,6 +21,56 @@ def test_region_config_is_loaded_not_hardcoded():
         load_regions(REPO_ROOT / "config" / "regions.yaml", ["atlantis"])
 
 
+# --- Region hierarchy fields (Revision 2, Part 02 R2.2) -------------------------
+
+CITY = "{id: %s, name: X, district: D, state: Maharashtra, zone: plains, lat: 20.0, lon: 77.0%s}"
+
+
+def _regions_file(tmp_path, *entries):
+    path = tmp_path / "regions.yaml"
+    path.write_text("regions:\n" + "".join(f"  - {e}\n" for e in entries), encoding="utf-8")
+    return path
+
+
+def test_regions_without_the_new_fields_still_load_with_defaults(tmp_path):
+    (region,) = load_regions(_regions_file(tmp_path, CITY % ("nagpur", "")))
+    assert (region.division, region.kind, region.parent) == (None, "city", None)
+
+
+def test_division_kind_and_parent_are_read(tmp_path):
+    path = _regions_file(
+        tmp_path,
+        CITY % ("mumbai", ", division: Konkan"),
+        CITY % ("kurla", ", division: Konkan, kind: area, parent: mumbai"),
+    )
+    mumbai, kurla = load_regions(path)
+    assert mumbai.division == "Konkan" and mumbai.kind == "city"
+    assert (kurla.kind, kurla.parent) == ("area", "mumbai")
+
+
+@pytest.mark.parametrize(
+    ("entries", "message"),
+    [
+        ([CITY % ("kurla", ", kind: area")], "parent"),
+        ([CITY % ("kurla", ", kind: area, parent: atlantis")], "parent"),
+        (
+            [CITY % ("a", ", kind: area, parent: b"), CITY % ("b", ", kind: area, parent: a")],
+            "parent",
+        ),
+        ([CITY % ("pune", ", kind: town")], "kind"),
+        ([CITY % ("mumbai", ""), CITY % ("pune", ", parent: mumbai")], "cannot have a parent"),
+    ],
+)
+def test_invalid_hierarchies_are_rejected(tmp_path, entries, message):
+    with pytest.raises(ValueError, match=message):
+        load_regions(_regions_file(tmp_path, *entries))
+
+
+def test_unknown_keys_are_still_an_error(tmp_path):
+    with pytest.raises(TypeError, match="divison"):
+        load_regions(_regions_file(tmp_path, CITY % ("pune", ", divison: Pune")))
+
+
 # --- NASA POWER ---------------------------------------------------------------
 
 POWER_PAYLOAD = {
